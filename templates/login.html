@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="WardWatch — Real-time hospital ward management. Sign in to access your live dashboard." />
+    <title>WardWatch | Sign in</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}" />
+  </head>
+  <body>
+    <div id="app" class="page-shell">
+      <main class="auth-shell">
+        <section class="hero-pane">
+          <div class="brand-lockup">
+            <img src="/photos/logo.jpeg" alt="WardWatch Logo" class="brand-logo" />
+            <div class="brand-copy">
+              <h1>WardWatch</h1>
+              <p>Intelligent Hospital Ward Management</p>
+            </div>
+          </div>
+
+          <div class="hero-copy">
+            <span class="eyebrow">Live Operations</span>
+            <h2>Real-time intelligence for every ward, shift, and decision.</h2>
+            <p>
+              Track bed occupancy, predict discharges, manage emergencies, and
+              coordinate your entire hospital — all from one real-time dashboard.
+            </p>
+          </div>
+
+          <div class="feature-grid">
+            <article class="feature-card">
+              <strong>⚡ Instant Updates</strong>
+              <span>Bed changes stream live to every screen — zero page refresh needed.</span>
+            </article>
+            <article class="feature-card">
+              <strong>🧠 Predictive Intelligence</strong>
+              <span>Smart vacancy predictions, cleaning estimates, and discharge forecasts.</span>
+            </article>
+            <article class="feature-card">
+              <strong>🚨 Emergency Mode</strong>
+              <span>One-click bed ranking for fastest patient placement in emergencies.</span>
+            </article>
+          </div>
+        </section>
+
+        <section class="auth-pane">
+          <div class="auth-panel">
+            <span class="eyebrow" style="background: rgba(21, 112, 239, 0.12); color: #155eef;">Sign in</span>
+            <h3>Welcome back</h3>
+            <p>Sign in to your WardWatch dashboard and start managing in real-time.</p>
+
+            <form id="loginForm" class="form-grid" novalidate>
+              <div class="form-group">
+                <label for="email">Email</label>
+                <input id="email" name="email" type="email" autocomplete="email" required />
+              </div>
+
+              <div class="form-group">
+                <label for="password">Password</label>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autocomplete="current-password"
+                  required
+                />
+              </div>
+
+              <button type="submit" class="btn btn-primary btn-full">Sign in</button>
+            </form>
+
+            <div class="auth-links">
+              <span>Need a new account?</span>
+              <a href="{{ url_for('signup') }}">Create one here</a>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast-wrap" id="toastWrap"></div>
+    <script>
+      window.WARDWATCH_CONFIG = {{ config | tojson }};
+    </script>
+    <script type="module" src="{{ url_for('static', filename='js/login.js') }}"></script>
+  </body>
+</html>

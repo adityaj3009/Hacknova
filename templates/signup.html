@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description"
+    content="WardWatch — Create your hospital ward management account. Choose your role and join the live dashboard." />
+  <title>WardWatch | Create Account</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}" />
+</head>
+
+<body>
+  <div id="app" class="page-shell">
+    <main class="auth-shell">
+      <section class="hero-pane">
+        <div class="brand-lockup">
+          <img src="/photos/logo.jpeg" alt="WardWatch Logo" class="brand-logo" />
+          <div class="brand-copy">
+            <h1>WardWatch</h1>
+            <p>Every Bed Matters. Track It Live...</p>
+          </div>
+        </div>
+
+        <div class="hero-copy">
+          <span class="eyebrow">Team Onboarding</span>
+          <h2>See Every Bed. Manage Your Ward in Real-Time.</h2>
+          <p>
+            Create a role-based account and instantly access live bed tracking,
+            predictive analytics, and emergency management tools.
+          </p>
+        </div>
+
+        <div class="feature-grid">
+          <article class="feature-card">
+            <strong>🩺 Doctors</strong>
+            <span>Full control — manage beds, use emergency mode, and view discharge forecasts.</span>
+          </article>
+          <article class="feature-card">
+            <strong>👨‍⚕️ Staff</strong>
+            <span>Manage admissions, cleaning queues, reservations, and patient flow.</span>
+          </article>
+          <article class="feature-card">
+            <strong>📊 Admins</strong>
+            <span>Hospital-wide monitoring with real-time ward performance metrics.</span>
+          </article>
+        </div>
+      </section>
+
+      <section class="auth-pane">
+        <div class="auth-panel">
+          <span class="eyebrow" style="background: rgba(15, 159, 110, 0.12); color: #0f9f6e;">Create Account</span>
+          <h3>Set up your WardWatch login</h3>
+          <p>Choose a role so the app can route you to the right real-time workspace.</p>
+
+          <form id="signupForm" class="form-grid" novalidate>
+            <div class="field-row">
+              <div class="form-group">
+                <label for="name">Full name</label>
+                <input id="name" name="name" type="text" autocomplete="name" required />
+              </div>
+
+              <div class="form-group">
+                <label for="role">Role</label>
+                <select id="role" name="role" required>
+                  <option value="doctor">Doctor</option>
+                  <option value="staff">Staff</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="email">Email</label>
+              <input id="email" name="email" type="email" autocomplete="email" required />
+            </div>
+
+            <div class="field-row">
+              <div class="form-group">
+                <label for="password">Password</label>
+                <input id="password" name="password" type="password" autocomplete="new-password" required />
+              </div>
+
+              <div class="form-group">
+                <label for="confirmPassword">Confirm password</label>
+                <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password"
+                  required />
+              </div>
+            </div>
+
+            <p class="field-help">Use at least 6 characters. The selected role controls dashboard access.</p>
+
+            <button type="submit" class="btn btn-primary btn-full">Create account</button>
+          </form>
+
+          <div class="auth-links">
+            <span>Already have an account?</span>
+            <a href="{{ url_for('index') }}">Back to sign in</a>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast-wrap" id="toastWrap"></div>
+  <script>
+    window.WARDWATCH_CONFIG = {{ config | tojson }};
+  </script>
+  <script type="module" src="{{ url_for('static', filename='js/signup.js') }}"></script>
+</body>
+
+</html>

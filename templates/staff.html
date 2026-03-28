@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="WardWatch Staff Operations Board — Real-time bed management, cleaning queues, and patient admissions." />
+    <title>WardWatch | Staff Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}" />
+  </head>
+  <body>
+    <div id="app" class="dashboard-shell">
+      <header class="topbar">
+        <div class="topbar-left">
+          <div class="topbar-title">
+            <img src="/photos/logo.jpeg" alt="WardWatch" class="topbar-logo" />
+            <div>
+              <strong>WardWatch</strong>
+              <span>Staff Operations Board</span>
+            </div>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <div class="role-chip">
+            <span id="uAvatar">S</span>
+            <span id="uName">Staff</span>
+            <span id="roleBadge">Staff</span>
+          </div>
+          <button id="logoutButton" class="btn btn-ghost" type="button">Log out</button>
+        </div>
+      </header>
+
+      <main class="content">
+        <section class="hero-card hero-staff">
+          <div class="hero-meta">
+            <span class="eyebrow">Realtime Operations</span>
+            <span class="role-chip" style="background: rgba(255, 255, 255, 0.12); color: #f8fbff; border-color: rgba(255, 255, 255, 0.18);">
+              🟢 Shared Queue
+            </span>
+          </div>
+          <h2 id="staffGreeting">Loading operations board</h2>
+          <p id="staffSubtitle">Connecting to ward activity and housekeeping queues.</p>
+
+          <div class="stat-grid">
+            <article class="stat-card">
+              <span>Ready beds</span>
+              <strong id="staffReadyBeds">0</strong>
+            </article>
+            <article class="stat-card">
+              <span>Cleaning</span>
+              <strong id="staffCleaningBeds">0</strong>
+            </article>
+            <article class="stat-card">
+              <span>Reserved</span>
+              <strong id="staffReservedBeds">0</strong>
+            </article>
+            <article class="stat-card">
+              <span>Occupied</span>
+              <strong id="staffOccupiedBeds">0</strong>
+            </article>
+          </div>
+        </section>
+
+        <div class="toolbar">
+          <input id="staffSearch" class="search-input" type="search" placeholder="Search beds, patients, or notes" />
+          <select id="staffWardFilter" class="search-input">
+            <option value="all">All wards</option>
+          </select>
+        </div>
+
+        <section class="page-grid">
+          <div class="stack">
+            <!-- Cleaning Queue -->
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">🧹 Cleaning Queue</h3>
+                  <p class="card-subtitle">Beds waiting on turnover or housekeeping.</p>
+                </div>
+              </div>
+              <div id="staffCleaningQueue"></div>
+            </article>
+
+            <!-- Reservations & Ready Beds -->
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">📌 Reservations & Ready Beds</h3>
+                  <p class="card-subtitle">Keep admissions moving efficiently.</p>
+                </div>
+              </div>
+              <div class="panel-grid">
+                <div id="staffReservedQueue"></div>
+                <div id="staffReadyQueue"></div>
+              </div>
+            </article>
+
+            <!-- Live Bed Board -->
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">Live Bed Board</h3>
+                  <p class="card-subtitle">Tap any bed to update status, reservation, or cleaning notes.</p>
+                </div>
+              </div>
+              <div id="staffBedGrid" class="bed-grid"></div>
+            </article>
+          </div>
+
+          <div class="stack">
+            <!-- Waiting Queue -->
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">⏱️ Patient Waiting Queue</h3>
+                  <p class="card-subtitle">Add and manage patients waiting for beds.</p>
+                </div>
+                <button id="staffAddWaiting" class="btn btn-secondary btn-sm" type="button">+ Add</button>
+              </div>
+              <div id="staffWaitingQueue"></div>
+            </article>
+
+            <!-- Alerts -->
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">🚨 Alerts</h3>
+                  <p class="card-subtitle">Watch slow cleaning cycles and busy wards.</p>
+                </div>
+              </div>
+              <div id="staffAlerts"></div>
+            </article>
+
+            <!-- Activity -->
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">Realtime Activity</h3>
+                  <p class="card-subtitle">Latest bed updates shared across the hospital.</p>
+                </div>
+              </div>
+              <div id="staffActivity"></div>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- Bed Editor Drawer -->
+    <div class="overlay" id="staffDrawerOverlay">
+      <section class="drawer" aria-modal="true" role="dialog" aria-labelledby="staffDrawerTitle">
+        <div class="drawer-handle" aria-hidden="true"></div>
+        <h3 id="staffDrawerTitle">Update bed</h3>
+        <p id="staffDrawerCopy">Keep operations in sync for the next shift.</p>
+
+        <form id="staffBedForm" class="form-grid">
+          <div class="field-row">
+            <div class="form-group">
+              <label for="staffStatus">Status</label>
+              <select id="staffStatus" name="status"></select>
+            </div>
+            <div class="form-group">
+              <label for="staffAssignedDoctor">Assigned doctor</label>
+              <input id="staffAssignedDoctor" name="assignedDoctor" type="text" />
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="form-group">
+              <label for="staffPatientName">Patient</label>
+              <input id="staffPatientName" name="patientName" type="text" />
+            </div>
+            <div class="form-group">
+              <label for="staffReservedFor">Reserved for</label>
+              <input id="staffReservedFor" name="reservedFor" type="text" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="staffNotes">Operations note</label>
+            <textarea id="staffNotes" name="notes"></textarea>
+          </div>
+
+          <div class="button-row">
+            <button id="staffDrawerClose" class="btn btn-secondary" type="button">Cancel</button>
+            <button class="btn btn-primary" type="submit">Save update</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <!-- Add Patient to Queue Drawer -->
+    <div class="overlay" id="addWaitingOverlay">
+      <section class="drawer" aria-modal="true" role="dialog" aria-labelledby="addWaitingTitle">
+        <div class="drawer-handle" aria-hidden="true"></div>
+        <h3 id="addWaitingTitle">Add Patient to Queue</h3>
+        <p>Patient will appear in the waiting queue with a live timer.</p>
+
+        <form id="addWaitingForm" class="form-grid">
+          <div class="form-group">
+            <label for="waitingName">Patient name</label>
+            <input id="waitingName" name="name" type="text" required />
+          </div>
+          <div class="field-row">
+            <div class="form-group">
+              <label for="waitingCondition">Condition</label>
+              <select id="waitingCondition" name="condition">
+                <option value="general">General</option>
+                <option value="surgery">Surgery</option>
+                <option value="emergency">Emergency</option>
+                <option value="icu">ICU</option>
+                <option value="maternity">Maternity</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="waitingNotes">Notes</label>
+              <input id="waitingNotes" name="notes" type="text" />
+            </div>
+          </div>
+          <div class="button-row">
+            <button id="addWaitingClose" class="btn btn-secondary" type="button">Cancel</button>
+            <button class="btn btn-primary" type="submit">Add to queue</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <div class="toast-wrap" id="toastWrap"></div>
+    <script>
+      window.WARDWATCH_CONFIG = {{ config | tojson }};
+    </script>
+    <script type="module" src="{{ url_for('static', filename='js/staff.js') }}"></script>
+  </body>
+</html>

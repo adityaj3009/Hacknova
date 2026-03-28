@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="WardWatch Admin Command Center — Hospital-wide monitoring, ward performance, and real-time alerts." />
+    <title>WardWatch | Admin Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}" />
+  </head>
+  <body>
+    <div id="app" class="dashboard-shell">
+      <header class="topbar">
+        <div class="topbar-left">
+          <div class="topbar-title">
+            <img src="/photos/logo.jpeg" alt="WardWatch" class="topbar-logo" />
+            <div>
+              <strong>WardWatch</strong>
+              <span>Admin Command Center</span>
+            </div>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <div class="role-chip">
+            <span id="uAvatar">A</span>
+            <span id="uName">Admin</span>
+            <span id="roleBadge">Admin</span>
+          </div>
+          <button id="logoutButton" class="btn btn-ghost" type="button">Log out</button>
+        </div>
+      </header>
+
+      <main class="content">
+        <section class="hero-card hero-admin">
+          <div class="hero-meta">
+            <span class="eyebrow">Hospital Command Center</span>
+            <span class="role-chip" style="background: rgba(255, 255, 255, 0.12); color: #f8fbff; border-color: rgba(255, 255, 255, 0.18);">
+              🔒 Read-Only View
+            </span>
+          </div>
+          <h2 id="adminGreeting">Loading command center</h2>
+          <p id="adminSubtitle">Listening for live hospital-wide changes.</p>
+
+          <div class="stat-grid stat-grid-5">
+            <article class="stat-card">
+              <span>Total beds</span>
+              <strong id="adminTotalBeds">0</strong>
+            </article>
+            <article class="stat-card">
+              <span>Occupied</span>
+              <strong id="adminOccupiedBeds">0</strong>
+            </article>
+            <article class="stat-card">
+              <span>Available</span>
+              <strong id="adminAvailableBeds">0</strong>
+            </article>
+            <article class="stat-card">
+              <span>Occupancy</span>
+              <strong id="adminOccupancy">0%</strong>
+            </article>
+            <article class="stat-card">
+              <span>Active alerts</span>
+              <strong id="adminAlertCount">0</strong>
+            </article>
+          </div>
+        </section>
+
+        <section class="page-grid">
+          <div class="stack">
+            <!-- Ward Performance -->
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">📊 Ward Performance</h3>
+                  <p class="card-subtitle">Occupancy and readiness by ward in real-time.</p>
+                </div>
+              </div>
+              <div id="adminWardList"></div>
+            </article>
+
+            <!-- Prediction Summary -->
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">🧠 Prediction Overview</h3>
+                  <p class="card-subtitle">Hospital-wide bed availability forecast.</p>
+                </div>
+              </div>
+              <div id="adminPredictions"></div>
+            </article>
+
+            <!-- Live Bed Board -->
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">Live Bed Board</h3>
+                  <p class="card-subtitle">Read-only overview across all wards.</p>
+                </div>
+              </div>
+              <div id="adminBedGrid" class="bed-grid"></div>
+            </article>
+          </div>
+
+          <div class="stack">
+            <!-- Waiting Queue (read-only) -->
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">⏱️ Patient Queue</h3>
+                  <p class="card-subtitle">Patients waiting for bed assignment.</p>
+                </div>
+              </div>
+              <div id="adminWaitingQueue"></div>
+            </article>
+
+            <!-- Alerts -->
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">🚨 Alerts</h3>
+                  <p class="card-subtitle">Operational pressure points generated from live data.</p>
+                </div>
+              </div>
+              <div id="adminAlerts"></div>
+            </article>
+
+            <!-- Activity -->
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">Activity Stream</h3>
+                  <p class="card-subtitle">Every connected dashboard writes updates here.</p>
+                </div>
+              </div>
+              <div id="adminActivity"></div>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast-wrap" id="toastWrap"></div>
+    <script>
+      window.WARDWATCH_CONFIG = {{ config | tojson }};
+    </script>
+    <script type="module" src="{{ url_for('static', filename='js/admin.js') }}"></script>
+  </body>
+</html>
