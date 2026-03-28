@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="WardWatch Ward Manager Dashboard — Full bed lifecycle, reservations, patient transfers, waiting queue, and alert management." />
+    <title>WardWatch | Ward Manager Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}" />
+  </head>
+  <body>
+    <div id="app" class="dashboard-shell">
+      <header class="topbar">
+        <div class="topbar-left">
+          <div class="topbar-title">
+            <img src="/photos/logo.jpeg" alt="WardWatch" class="topbar-logo" />
+            <div>
+              <strong>WardWatch</strong>
+              <span>Ward Manager Operations</span>
+            </div>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <div class="role-chip">
+            <span id="uAvatar">M</span>
+            <span id="uName">Manager</span>
+            <span id="roleBadge">Manager</span>
+          </div>
+          <button id="logoutButton" class="btn btn-ghost" type="button">Log out</button>
+        </div>
+      </header>
+
+      <main class="content">
+        <!-- Hero -->
+        <section class="hero-card hero-staff">
+          <div class="hero-meta">
+            <span class="eyebrow">Realtime Operations</span>
+            <span class="role-chip" style="background:rgba(255,255,255,0.12);color:#f8fbff;border-color:rgba(255,255,255,0.18);">
+              🟢 Full Control
+            </span>
+          </div>
+          <h2 id="managerGreeting">Loading operations board</h2>
+          <p id="managerSubtitle">Connecting to ward activity and bed queues.</p>
+
+          <div class="stat-grid stat-grid-6">
+            <article class="stat-card">
+              <span>Total Beds</span>
+              <strong id="managerTotalBeds">0</strong>
+            </article>
+            <article class="stat-card">
+              <span>Occupied</span>
+              <strong id="managerOccupiedBeds">0</strong>
+            </article>
+            <article class="stat-card">
+              <span>Available</span>
+              <strong id="managerReadyBeds">0</strong>
+            </article>
+            <article class="stat-card">
+              <span>Cleaning</span>
+              <strong id="managerCleaningBeds">0</strong>
+            </article>
+            <article class="stat-card">
+              <span>Reserved</span>
+              <strong id="managerReservedBeds">0</strong>
+            </article>
+            <article class="stat-card">
+              <span>Waiting</span>
+              <strong id="managerWaiting">0</strong>
+            </article>
+          </div>
+        </section>
+
+        <!-- Auto-Suggestion Banner -->
+        <div id="suggestionBanner" class="suggestion-banner hidden"></div>
+
+        <!-- Toolbar -->
+        <div class="toolbar">
+          <input id="managerSearch" class="search-input" type="search" placeholder="Search beds, patients, notes" />
+          <select id="managerWardFilter" class="search-input">
+            <option value="all">All wards</option>
+          </select>
+          <button id="openReservationBtn" class="btn btn-secondary btn-sm" type="button">📌 Reserve Bed</button>
+          <button id="openTransferBtn" class="btn btn-secondary btn-sm" type="button">🔀 Transfer Patient</button>
+          <button class="btn btn-secondary btn-sm" data-open-alert-drawer="true" type="button">🚨 Add Alert</button>
+          <button id="emergencyBtn" class="btn btn-emergency" type="button">🚨 Emergency Mode</button>
+        </div>
+
+        <!-- Emergency Panel -->
+        <section id="emergencyPanel" class="emergency-panel hidden">
+          <div class="emergency-header">
+            <div>
+              <h3 class="emergency-title">🚨 Emergency Mode — Fastest Available Beds</h3>
+              <p class="emergency-subtitle">Beds ranked by readiness. All critical patients shown first.</p>
+            </div>
+            <button id="emergencyClose" class="btn btn-ghost" type="button">✕ Close</button>
+          </div>
+          <div id="emergencyContent"></div>
+        </section>
+
+        <section class="page-grid">
+          <div class="stack">
+            <!-- Cleaning Queue -->
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">🧹 Cleaning Queue</h3>
+                  <p class="card-subtitle">Mark beds available after housekeeping.</p>
+                </div>
+              </div>
+              <div id="managerCleaningQueue"></div>
+            </article>
+
+            <!-- Reservations & Ready Beds -->
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">📌 Reservations &amp; Ready Beds</h3>
+                  <p class="card-subtitle">Review bookings · Assign incoming patients.</p>
+                </div>
+              </div>
+              <div class="panel-grid">
+                <div id="managerReservedQueue"></div>
+                <div id="managerReadyQueue"></div>
+              </div>
+            </article>
+
+            <!-- Smart Prediction -->
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">🧠 Smart Predictions</h3>
+                  <p class="card-subtitle">Which bed vacates first · Cleaning overdue.</p>
+                </div>
+              </div>
+              <div id="managerPredictions"></div>
+            </article>
+
+            <!-- Live Bed Board -->
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">🛏️ Live Bed Board</h3>
+                  <p class="card-subtitle">Tap any bed to update status, patient, or notes.</p>
+                </div>
+              </div>
+              <div id="managerBedGrid" class="bed-grid"></div>
+            </article>
+          </div>
+
+          <div class="stack">
+            <!-- Medicine Prescriptions from Doctors -->
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">💊 Medicine Prescriptions</h3>
+                  <p class="card-subtitle">Doctor-prescribed medicines — mark when administered.</p>
+                </div>
+              </div>
+              <div id="managerMedicinePrescriptions"></div>
+            </article>
+
+            <!-- Waiting Queue -->
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">⏱️ Patient Waiting Queue</h3>
+                  <p class="card-subtitle">Priority sorted · Auto-admit when beds become free.</p>
+                </div>
+                <button id="managerAddWaiting" class="btn btn-secondary btn-sm" type="button">+ Add Patient</button>
+              </div>
+              <div id="managerWaitingQueue"></div>
+            </article>
+
+            <!-- Alerts -->
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">🚨 Active Alerts</h3>
+                  <p class="card-subtitle">Urgent system alerts. You can resolve them.</p>
+                </div>
+                <button class="btn btn-secondary btn-sm" data-open-alert-drawer="true" type="button">+ Add Alert</button>
+              </div>
+              <div id="managerAlerts"></div>
+            </article>
+
+            <!-- Activity -->
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">📋 Activity Log</h3>
+                  <p class="card-subtitle">All ward actions timestamped and logged.</p>
+                </div>
+              </div>
+              <div id="managerActivity"></div>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- Bed Editor Drawer -->
+    <div class="overlay" id="managerDrawerOverlay">
+      <section class="drawer" aria-modal="true" role="dialog" aria-labelledby="managerDrawerTitle">
+        <div class="drawer-handle" aria-hidden="true"></div>
+        <h3 id="managerDrawerTitle">Update Bed</h3>
+        <p id="managerDrawerCopy">Manage bed status, patient, and assignment.</p>
+
+        <form id="managerBedForm" class="form-grid">
+          <div class="field-row">
+            <div class="form-group">
+              <label for="managerStatus">Bed Status</label>
+              <select id="managerStatus" name="status"></select>
+            </div>
+            <div class="form-group">
+              <label for="managerConditionCategory">Condition</label>
+              <select id="managerConditionCategory" name="conditionCategory"></select>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="form-group">
+              <label for="managerPatientName">Patient Name</label>
+              <input id="managerPatientName" name="patientName" type="text" placeholder="Full name" />
+            </div>
+            <div class="form-group">
+              <label for="managerDoctorId">Assign Doctor ID</label>
+              <select id="managerDoctorId" name="doctorId"></select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="managerReservedFor">Reserved / Incoming Patient</label>
+            <input id="managerReservedFor" name="reservedFor" type="text" placeholder="Use when the bed is reserved for an incoming patient" />
+          </div>
+
+
+          <div class="form-group">
+            <label for="managerNotes">Operations Note</label>
+            <textarea id="managerNotes" name="notes" rows="3"></textarea>
+          </div>
+
+          <div class="button-row">
+            <button id="managerDrawerClose" class="btn btn-secondary" type="button">Cancel</button>
+            <button class="btn btn-primary" type="submit">Save update</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <!-- Reservation Drawer -->
+    <div class="overlay" id="reservationOverlay">
+      <section class="drawer" aria-modal="true" role="dialog" aria-labelledby="reservationTitle">
+        <div class="drawer-handle" aria-hidden="true"></div>
+        <h3 id="reservationTitle">📌 Reserve a Bed</h3>
+        <p>Reserve an available bed for an incoming patient under a specific Doctor ID.</p>
+
+        <form id="reservationForm" class="form-grid">
+          <div class="field-row">
+            <div class="form-group">
+              <label for="reserveBedId">Bed</label>
+              <select id="reserveBedId" name="bedId"></select>
+            </div>
+            <div class="form-group">
+              <label for="reserveDoctorId">Doctor ID</label>
+              <select id="reserveDoctorId" name="doctorId"></select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="reservePatientName">Patient Name</label>
+            <input id="reservePatientName" name="patientName" type="text" required placeholder="Incoming patient name" />
+          </div>
+
+          <div class="form-group">
+            <label for="reserveTime">Reservation Time</label>
+            <input id="reserveTime" name="reservationTime" type="datetime-local" />
+          </div>
+
+          <div class="button-row">
+            <button id="reservationClose" class="btn btn-secondary" type="button">Cancel</button>
+            <button class="btn btn-primary" type="submit">Reserve Bed</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <!-- Patient Transfer Drawer -->
+    <div class="overlay" id="transferOverlay">
+      <section class="drawer" aria-modal="true" role="dialog" aria-labelledby="transferTitle">
+        <div class="drawer-handle" aria-hidden="true"></div>
+        <h3 id="transferTitle">🔀 Transfer Patient</h3>
+        <p>Move a patient from one bed or ward to another.</p>
+
+        <form id="transferForm" class="form-grid">
+          <div class="field-row">
+            <div class="form-group">
+              <label for="transferFromBed">From Bed</label>
+              <select id="transferFromBed" name="fromBed"></select>
+            </div>
+            <div class="form-group">
+              <label for="transferToBed">To Bed</label>
+              <select id="transferToBed" name="toBed"></select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="transferType">Transfer Type</label>
+            <select id="transferType" name="transferType">
+              <option value="General Ward → ICU">General Ward → ICU</option>
+              <option value="ICU → General Ward">ICU → General Ward</option>
+              <option value="Ward → Operation Theatre">Ward → Operation Theatre</option>
+              <option value="Operation Theatre → Ward">Operation Theatre → Ward</option>
+              <option value="Ward Transfer">Ward Transfer</option>
+            </select>
+          </div>
+
+          <div class="button-row">
+            <button id="transferClose" class="btn btn-secondary" type="button">Cancel</button>
+            <button class="btn btn-primary" type="submit">Transfer Patient</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <!-- Add Patient to Queue Drawer -->
+    <div class="overlay" id="addWaitingOverlay">
+      <section class="drawer" aria-modal="true" role="dialog" aria-labelledby="addWaitingTitle">
+        <div class="drawer-handle" aria-hidden="true"></div>
+        <h3 id="addWaitingTitle">Add Patient to Queue</h3>
+        <p>Patient will appear in the waiting queue with a live priority timer.</p>
+
+        <form id="addWaitingForm" class="form-grid">
+          <div class="form-group">
+            <label for="waitingName">Patient Name</label>
+            <input id="waitingName" name="name" type="text" required placeholder="Full name" />
+          </div>
+          <div class="field-row">
+            <div class="form-group">
+              <label for="waitingPriority">Priority</label>
+              <select id="waitingPriority" name="priority">
+                <option value="emergency">🔴 Emergency</option>
+                <option value="urgent">🟡 Urgent</option>
+                <option value="normal" selected>🟢 Normal</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="waitingCondition">Condition</label>
+              <select id="waitingCondition" name="condition">
+                <option value="general">General</option>
+                <option value="surgery">Surgery</option>
+                <option value="emergency">Emergency</option>
+                <option value="icu">ICU</option>
+                <option value="maternity">Maternity</option>
+              </select>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="form-group">
+              <label for="waitingDoctorId">Doctor ID</label>
+              <select id="waitingDoctorId" name="doctorId"></select>
+            </div>
+            <div class="form-group">
+              <label for="waitingNotes">Notes</label>
+              <input id="waitingNotes" name="notes" type="text" placeholder="Brief description" />
+            </div>
+          </div>
+          <div class="button-row">
+            <button id="addWaitingClose" class="btn btn-secondary" type="button">Cancel</button>
+            <button class="btn btn-primary" type="submit">Add to queue</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <!-- Add Alert Drawer -->
+    <div class="overlay" id="addAlertOverlay">
+      <section class="drawer" aria-modal="true" role="dialog" aria-labelledby="addAlertTitle">
+        <div class="drawer-handle" aria-hidden="true"></div>
+        <h3 id="addAlertTitle">🚨 Add Urgent Alert</h3>
+        <p>Raise an urgent alert for a patient. Medicine is prescribed by doctors via their dashboard.</p>
+
+        <form id="addAlertForm" class="form-grid">
+          <div class="field-row">
+            <div class="form-group">
+              <label for="alertPatient">Patient Name</label>
+              <input id="alertPatient" name="alertPatient" type="text" required placeholder="Patient name" />
+            </div>
+            <div class="form-group">
+              <label for="alertDoctorId">Notify Doctor</label>
+              <select id="alertDoctorId" name="alertDoctorId"></select>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="form-group">
+              <label for="alertBedId">Bed ID</label>
+              <input id="alertBedId" name="alertBedId" type="text" placeholder="e.g. A-01" />
+            </div>
+            <div class="form-group">
+              <label for="alertDescription">Description / Reason</label>
+              <input id="alertDescription" name="alertDescription" type="text" required placeholder="Brief description" />
+            </div>
+          </div>
+
+          <div class="button-row">
+            <button id="addAlertClose" class="btn btn-secondary" type="button">Cancel</button>
+            <button class="btn btn-primary" type="submit">Add Alert</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <div class="toast-wrap" id="toastWrap"></div>
+    <script>
+      window.WARDWATCH_CONFIG = {{ config | tojson }};
+    </script>
+    <script type="module" src="{{ url_for('static', filename='js/manager.js') }}"></script>
+  </body>
+</html>

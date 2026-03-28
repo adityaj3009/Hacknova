@@ -107,6 +107,21 @@
           </div>
 
           <div class="stack">
+            <!-- AI Shift Handover -->
+            <article class="card handover-card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">✨ Current Shift Summary</h3>
+                  <p class="card-subtitle">AI-generated handover report based on live ward data.</p>
+                </div>
+                <div class="btn-group">
+                  <button id="staffGenerateHandover" class="btn btn-secondary btn-sm" type="button">Generate</button>
+                  <button id="staffPrintHandover" class="btn btn-ghost btn-sm hidden" type="button">🖨️ PDF</button>
+                </div>
+              </div>
+              <div id="staffHandoverContent" class="handover-content ai-report empty-state">Click generate to create an intelligent handover summary.</div>
+            </article>
+
             <!-- Waiting Queue -->
             <article class="card">
               <div class="card-header">
@@ -128,17 +143,6 @@
                 </div>
               </div>
               <div id="staffAlerts"></div>
-            </article>
-
-            <!-- Activity -->
-            <article class="card">
-              <div class="card-header">
-                <div>
-                  <h3 class="card-title">Realtime Activity</h3>
-                  <p class="card-subtitle">Latest bed updates shared across the hospital.</p>
-                </div>
-              </div>
-              <div id="staffActivity"></div>
             </article>
           </div>
         </section>

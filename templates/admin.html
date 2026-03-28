@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="WardWatch Admin Command Center — Hospital-wide monitoring, ward performance, and real-time alerts." />
+    <meta name="description" content="WardWatch Admin Command Center — Hospital-wide monitoring, analytics, ward performance, all doctors, and real-time alerts." />
     <title>WardWatch | Admin Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}" />
   </head>
@@ -30,19 +30,20 @@
       </header>
 
       <main class="content">
+        <!-- Hero -->
         <section class="hero-card hero-admin">
           <div class="hero-meta">
             <span class="eyebrow">Hospital Command Center</span>
-            <span class="role-chip" style="background: rgba(255, 255, 255, 0.12); color: #f8fbff; border-color: rgba(255, 255, 255, 0.18);">
+            <span class="role-chip" style="background:rgba(255,255,255,0.12);color:#f8fbff;border-color:rgba(255,255,255,0.18);">
               🔒 Read-Only View
             </span>
           </div>
           <h2 id="adminGreeting">Loading command center</h2>
           <p id="adminSubtitle">Listening for live hospital-wide changes.</p>
 
-          <div class="stat-grid stat-grid-5">
+          <div class="stat-grid stat-grid-6">
             <article class="stat-card">
-              <span>Total beds</span>
+              <span>Total Beds</span>
               <strong id="adminTotalBeds">0</strong>
             </article>
             <article class="stat-card">
@@ -54,11 +55,26 @@
               <strong id="adminAvailableBeds">0</strong>
             </article>
             <article class="stat-card">
-              <span>Occupancy</span>
+              <span>Cleaning</span>
+              <strong id="adminCleaningBeds">0</strong>
+            </article>
+            <article class="stat-card">
+              <span>Reserved</span>
+              <strong id="adminReservedBeds">0</strong>
+            </article>
+            <article class="stat-card">
+              <span>Waiting</span>
+              <strong id="adminWaiting">0</strong>
+            </article>
+          </div>
+
+          <div class="stat-grid" style="margin-top:16px; grid-template-columns: repeat(2,1fr);">
+            <article class="stat-card">
+              <span>Occupancy Rate</span>
               <strong id="adminOccupancy">0%</strong>
             </article>
             <article class="stat-card">
-              <span>Active alerts</span>
+              <span>Active Alerts</span>
               <strong id="adminAlertCount">0</strong>
             </article>
           </div>
@@ -66,6 +82,17 @@
 
         <section class="page-grid">
           <div class="stack">
+            <!-- Analytics -->
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">📈 Analytics Overview</h3>
+                  <p class="card-subtitle">Real-time hospital performance metrics.</p>
+                </div>
+              </div>
+              <div id="adminAnalytics"></div>
+            </article>
+
             <!-- Ward Performance -->
             <article class="card">
               <div class="card-header">
@@ -77,11 +104,11 @@
               <div id="adminWardList"></div>
             </article>
 
-            <!-- Prediction Summary -->
+            <!-- Prediction Overview -->
             <article class="card">
               <div class="card-header">
                 <div>
-                  <h3 class="card-title">🧠 Prediction Overview</h3>
+                  <h3 class="card-title">🧠 Smart Prediction Overview</h3>
                   <p class="card-subtitle">Hospital-wide bed availability forecast.</p>
                 </div>
               </div>
@@ -92,7 +119,7 @@
             <article class="card">
               <div class="card-header">
                 <div>
-                  <h3 class="card-title">Live Bed Board</h3>
+                  <h3 class="card-title">🛏️ Live Bed Board</h3>
                   <p class="card-subtitle">Read-only overview across all wards.</p>
                 </div>
               </div>
@@ -101,12 +128,23 @@
           </div>
 
           <div class="stack">
-            <!-- Waiting Queue (read-only) -->
+            <!-- All Doctors -->
+            <article class="card">
+              <div class="card-header">
+                <div>
+                  <h3 class="card-title">👨‍⚕️ Doctor Registry</h3>
+                  <p class="card-subtitle">All registered doctors and their Doctor IDs.</p>
+                </div>
+              </div>
+              <div id="adminDoctorList"></div>
+            </article>
+
+            <!-- Waiting Queue -->
             <article class="card">
               <div class="card-header">
                 <div>
                   <h3 class="card-title">⏱️ Patient Queue</h3>
-                  <p class="card-subtitle">Patients waiting for bed assignment.</p>
+                  <p class="card-subtitle">Patients waiting for bed assignment (read-only).</p>
                 </div>
               </div>
               <div id="adminWaitingQueue"></div>
@@ -117,7 +155,7 @@
               <div class="card-header">
                 <div>
                   <h3 class="card-title">🚨 Alerts</h3>
-                  <p class="card-subtitle">Operational pressure points generated from live data.</p>
+                  <p class="card-subtitle">System and manager alerts — read-only.</p>
                 </div>
               </div>
               <div id="adminAlerts"></div>
@@ -127,7 +165,7 @@
             <article class="card">
               <div class="card-header">
                 <div>
-                  <h3 class="card-title">Activity Stream</h3>
+                  <h3 class="card-title">📋 Activity Stream</h3>
                   <p class="card-subtitle">Every connected dashboard writes updates here.</p>
                 </div>
               </div>

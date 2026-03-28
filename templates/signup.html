@@ -4,8 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description"
-    content="WardWatch — Create your hospital ward management account. Choose your role and join the live dashboard." />
+  <meta name="description" content="WardWatch — Create your hospital ward management account. Choose your role and join the live dashboard." />
   <title>WardWatch | Create Account</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}" />
 </head>
@@ -18,7 +17,7 @@
           <img src="/photos/logo.jpeg" alt="WardWatch Logo" class="brand-logo" />
           <div class="brand-copy">
             <h1>WardWatch</h1>
-            <p>Every Bed Matters. Track It Live...</p>
+            <p>Every Bed Matters. Track It Live.</p>
           </div>
         </div>
 
@@ -34,16 +33,29 @@
         <div class="feature-grid">
           <article class="feature-card">
             <strong>🩺 Doctors</strong>
-            <span>Full control — manage beds, use emergency mode, and view discharge forecasts.</span>
+            <span>Private patient view — see only your patients by Doctor ID. Update patient status and clinical notes.</span>
           </article>
           <article class="feature-card">
-            <strong>👨‍⚕️ Staff</strong>
-            <span>Manage admissions, cleaning queues, reservations, and patient flow.</span>
+            <strong>🏥 Ward Managers</strong>
+            <span>Full control — manage bed lifecycle, reservations, transfers, waiting queue, and alerts.</span>
           </article>
           <article class="feature-card">
             <strong>📊 Admins</strong>
-            <span>Hospital-wide monitoring with real-time ward performance metrics.</span>
+            <span>Hospital-wide monitoring with analytics, ward performance, and all doctors registry.</span>
           </article>
+        </div>
+
+        <!-- Doctor ID Reference -->
+        <div class="doctor-id-reference">
+          <h4>Doctor ID Reference</h4>
+          <div class="doctor-id-grid">
+            <span class="doctor-id-ref-item"><strong>DR-001</strong> Dr. Anil Kapoor · Cardiology</span>
+            <span class="doctor-id-ref-item"><strong>DR-002</strong> Dr. Sneha Reddy · Neurology</span>
+            <span class="doctor-id-ref-item"><strong>DR-003</strong> Dr. Vikram Mehta · Surgery</span>
+            <span class="doctor-id-ref-item"><strong>DR-004</strong> Dr. Priya Iyer · Maternity</span>
+            <span class="doctor-id-ref-item"><strong>DR-005</strong> Dr. Rajan Nair · Emergency</span>
+            <span class="doctor-id-ref-item"><strong>DR-006</strong> Dr. Kavita Shah · ICU</span>
+          </div>
         </div>
       </section>
 
@@ -57,38 +69,52 @@
             <div class="field-row">
               <div class="form-group">
                 <label for="name">Full name</label>
-                <input id="name" name="name" type="text" autocomplete="name" required />
+                <input id="name" name="name" type="text" autocomplete="name" required placeholder="Your full name" />
               </div>
 
               <div class="form-group">
                 <label for="role">Role</label>
                 <select id="role" name="role" required>
-                  <option value="doctor">Doctor</option>
-                  <option value="staff">Staff</option>
-                  <option value="admin">Admin</option>
+                  <option value="doctor">🩺 Doctor</option>
+                  <option value="manager">🏥 Ward Manager</option>
+                  <option value="admin">📊 Admin</option>
                 </select>
               </div>
             </div>
 
+            <!-- Doctor ID field — shown only when role = doctor -->
+            <div class="form-group" id="doctorIdGroup" style="display:none;">
+              <label for="doctorId">Doctor ID <span style="color:var(--red);">*</span></label>
+              <select id="doctorId" name="doctorId">
+                <option value="">— Select your Doctor ID —</option>
+                <option value="DR-001">DR-001 — Dr. Anil Kapoor (Cardiology)</option>
+                <option value="DR-002">DR-002 — Dr. Sneha Reddy (Neurology)</option>
+                <option value="DR-003">DR-003 — Dr. Vikram Mehta (Surgery)</option>
+                <option value="DR-004">DR-004 — Dr. Priya Iyer (Maternity)</option>
+                <option value="DR-005">DR-005 — Dr. Rajan Nair (Emergency)</option>
+                <option value="DR-006">DR-006 — Dr. Kavita Shah (ICU)</option>
+              </select>
+              <small class="field-help">Required for doctors. Your Doctor ID determines which patients you can see.</small>
+            </div>
+
             <div class="form-group">
               <label for="email">Email</label>
-              <input id="email" name="email" type="email" autocomplete="email" required />
+              <input id="email" name="email" type="email" autocomplete="email" required placeholder="your@email.com" />
             </div>
 
             <div class="field-row">
               <div class="form-group">
                 <label for="password">Password</label>
-                <input id="password" name="password" type="password" autocomplete="new-password" required />
+                <input id="password" name="password" type="password" autocomplete="new-password" required placeholder="Min 6 characters" />
               </div>
 
               <div class="form-group">
                 <label for="confirmPassword">Confirm password</label>
-                <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password"
-                  required />
+                <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" required placeholder="Repeat password" />
               </div>
             </div>
 
-            <p class="field-help">Use at least 6 characters. The selected role controls dashboard access.</p>
+            <p class="field-help">The selected role controls dashboard access and permissions.</p>
 
             <button type="submit" class="btn btn-primary btn-full">Create account</button>
           </form>

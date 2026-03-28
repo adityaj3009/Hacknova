@@ -1,11 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description"
-    content="WardWatch Doctor Dashboard — Real-time bed tracking, emergency mode, predictive intelligence for hospital ward management." />
+  <meta name="description" content="WardWatch Doctor Dashboard — View your patients, update patient status, track alerts and medicine schedules." />
   <title>WardWatch | Doctor Dashboard</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}" />
 </head>
@@ -18,7 +16,7 @@
           <img src="/photos/logo.jpeg" alt="WardWatch" class="topbar-logo" />
           <div>
             <strong>WardWatch</strong>
-            <span>Doctor Command Center</span>
+            <span>Doctor Dashboard</span>
           </div>
         </div>
       </div>
@@ -36,31 +34,36 @@
       <!-- Hero Section -->
       <section class="hero-card hero-doctor">
         <div class="hero-meta">
-          <span class="eyebrow">Realtime Doctor Board</span>
-          <span class="role-chip"
-            style="background: rgba(255, 255, 255, 0.12); color: #f8fbff; border-color: rgba(255, 255, 255, 0.18);">
-            🟢 Live Sync
+          <span class="eyebrow">Doctor Private View</span>
+          <span class="role-chip" style="background: rgba(255,255,255,0.12); color:#f8fbff; border-color:rgba(255,255,255,0.18);">
+            🔒 Patients Only
           </span>
         </div>
         <h2 id="doctorGreeting">Loading doctor dashboard</h2>
-        <p id="doctorSubtitle">Connecting to Firebase Realtime Database.</p>
+        <p id="doctorSubtitle">Connecting to your patient data.</p>
 
-        <div class="stat-grid">
+        <div class="doctor-id-banner">
+          <span class="doctor-id-label">Doctor ID:</span>
+          <span id="doctorIdChip" class="doctor-id-chip-lg">—</span>
+          <span id="doctorSpec" class="doctor-spec-sm"></span>
+        </div>
+
+        <div class="stat-grid stat-grid-5">
           <article class="stat-card">
-            <span>Total beds</span>
-            <strong id="doctorTotalBeds">0</strong>
+            <span>My Patients</span>
+            <strong id="doctorMyPatients">0</strong>
           </article>
           <article class="stat-card">
-            <span>Occupied</span>
-            <strong id="doctorOccupiedBeds">0</strong>
+            <span>Reserved for Me</span>
+            <strong id="doctorReservedForMe">0</strong>
+          </article>
+          <article class="stat-card">
+            <span>Total Beds</span>
+            <strong id="doctorTotalBeds">0</strong>
           </article>
           <article class="stat-card">
             <span>Available</span>
             <strong id="doctorAvailableBeds">0</strong>
-          </article>
-          <article class="stat-card">
-            <span>Cleaning</span>
-            <strong id="doctorCleaningBeds">0</strong>
           </article>
           <article class="stat-card">
             <span>Occupancy</span>
@@ -69,135 +72,160 @@
         </div>
       </section>
 
-      <!-- Toolbar with Emergency Button -->
+      <!-- Toolbar -->
       <div class="toolbar">
-        <input id="doctorSearch" class="search-input" type="search"
-          placeholder="Search bed, patient, note, or doctor" />
+        <input id="doctorSearch" class="search-input" type="search" placeholder="Search my patients, beds, notes" />
         <select id="doctorWardFilter" class="search-input">
           <option value="all">All wards</option>
         </select>
-        <button id="emergencyBtn" class="btn btn-emergency" type="button">
-          🚨 Emergency Mode
-        </button>
       </div>
-
-      <!-- Emergency Panel (hidden by default) -->
-      <section id="emergencyPanel" class="emergency-panel hidden">
-        <div class="emergency-header">
-          <div>
-            <h3 class="emergency-title">🚨 Emergency Mode — Fastest Available Beds</h3>
-            <p class="emergency-subtitle">Beds ranked by readiness time. Click any bed to assign.</p>
-          </div>
-          <button id="emergencyClose" class="btn btn-ghost" type="button">✕ Close</button>
-        </div>
-        <div id="emergencyContent"></div>
-      </section>
 
       <section class="page-grid">
         <div class="stack">
-          <!-- Prediction Summary -->
+          <!-- My Patients Bed Grid -->
           <article class="card">
             <div class="card-header">
               <div>
-                <h3 class="card-title">🧠 Smart Predictions</h3>
-              </div>
-            </div>
-            <div id="doctorPredictions"></div>
-          </article>
-
-          <!-- Bed Grid -->
-          <article class="card">
-            <div class="card-header">
-              <div>
-                <h3 class="card-title">Live Bed Map</h3>
-                <p class="card-subtitle">Click any bed to update patient assignment or status.</p>
+                <h3 class="card-title">🛏️ My Patients</h3>
+                <p class="card-subtitle">Only beds assigned to your Doctor ID are shown here.</p>
               </div>
             </div>
             <div id="doctorBedGrid" class="bed-grid"></div>
           </article>
-        </div>
 
-        <div class="stack">
-          <!-- Waiting Queue -->
+          <!-- Reserved for Me -->
           <article class="card">
             <div class="card-header">
               <div>
-                <h3 class="card-title">⏱️ Patient Waiting Queue</h3>
-                <p class="card-subtitle">Live timer — patients waiting >30 min trigger alerts.</p>
+                <h3 class="card-title">📌 Reserved for Me</h3>
+                <p class="card-subtitle">Beds the Manager reserved under your Doctor ID.</p>
               </div>
             </div>
-            <div id="doctorWaitingQueue"></div>
+            <div id="doctorReservedList"></div>
           </article>
 
-          <!-- Alerts -->
+          <!-- Smart Prediction -->
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <h3 class="card-title">🧠 Smart Predictions</h3>
+                <p class="card-subtitle">Hospital-wide bed availability forecast (read-only).</p>
+              </div>
+            </div>
+            <div id="doctorPredictions"></div>
+          </article>
+        </div>
+
+        <div class="stack">
+          <!-- Medicine Schedule -->
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <h3 class="card-title">💊 Medicine Schedule</h3>
+                <p class="card-subtitle">Prescribe medicines for your patients.</p>
+              </div>
+              <button id="doctorAddMedicineBtn" class="btn btn-secondary btn-sm" type="button">+ Prescribe</button>
+            </div>
+            <div id="doctorMedicineAlerts"></div>
+          </article>
+
+          <!-- Active Alerts -->
           <article class="card">
             <div class="card-header">
               <div>
                 <h3 class="card-title">🚨 Active Alerts</h3>
-                <p class="card-subtitle">Escalation flags recalculate instantly as bed statuses change.</p>
+                <p class="card-subtitle">System and manager alerts related to your patients.</p>
               </div>
             </div>
             <div id="doctorAlerts"></div>
           </article>
 
-          <!-- Activity -->
+          <!-- Waiting Queue (read-only) -->
           <article class="card">
             <div class="card-header">
               <div>
-                <h3 class="card-title">Recent Activity</h3>
-                <p class="card-subtitle">All updates shared across connected dashboards.</p>
+                <h3 class="card-title">⏱️ Patient Waiting Queue</h3>
+                <p class="card-subtitle">Managed by Ward Manager. Patients &gt;30 min trigger alerts.</p>
               </div>
             </div>
-            <div id="doctorActivity"></div>
+            <div id="doctorWaitingQueue"></div>
           </article>
+
+
         </div>
       </section>
     </main>
   </div>
 
-  <!-- Bed Editor Drawer -->
+  <!-- Patient Status Editor Drawer (no bed status change) -->
   <div class="overlay" id="doctorDrawerOverlay">
     <section class="drawer" aria-modal="true" role="dialog" aria-labelledby="doctorDrawerTitle">
       <div class="drawer-handle" aria-hidden="true"></div>
-      <h3 id="doctorDrawerTitle">Update bed</h3>
-      <p id="doctorDrawerCopy">Adjust the latest status and patient note.</p>
+      <h3 id="doctorDrawerTitle">Update Patient</h3>
+      <p id="doctorDrawerCopy">Update patient clinical status and notes.</p>
+      <div class="role-notice">
+        <span class="escalation-flag">DOCTOR VIEW</span>
+        <span>Bed status changes are managed by the Ward Manager only.</span>
+      </div>
 
       <form id="doctorBedForm" class="form-grid">
-        <div class="field-row">
-          <div class="form-group">
-            <label for="doctorStatus">Status</label>
-            <select id="doctorStatus" name="status"></select>
-          </div>
-          <div class="form-group">
-            <label for="doctorConditionCategory">Condition</label>
-            <select id="doctorConditionCategory" name="conditionCategory"></select>
-          </div>
-        </div>
-
-        <div class="field-row">
-          <div class="form-group">
-            <label for="doctorPatientName">Patient</label>
-            <input id="doctorPatientName" name="patientName" type="text" />
-          </div>
-          <div class="form-group">
-            <label for="doctorAssignedDoctor">Assigned doctor</label>
-            <input id="doctorAssignedDoctor" name="assignedDoctor" type="text" />
-          </div>
+        <div class="form-group">
+          <label for="doctorPatientName">Patient Name <span class="field-readonly">(read-only)</span></label>
+          <input id="doctorPatientName" name="patientName" type="text" readonly style="opacity:0.6;cursor:not-allowed;" />
         </div>
 
         <div class="form-group">
-          <label for="doctorReservedFor">Reserved for</label>
-          <input id="doctorReservedFor" name="reservedFor" type="text" />
+          <label for="doctorPatientStatus">Patient Status</label>
+          <select id="doctorPatientStatus" name="patientStatus">
+            <option value="">— Select Status —</option>
+            <option value="stable">Stable</option>
+            <option value="critical">Critical</option>
+            <option value="discharge_ready">Discharge Ready</option>
+            <option value="under_observation">Under Observation</option>
+            <option value="improving">Improving</option>
+          </select>
         </div>
 
         <div class="form-group">
-          <label for="doctorNotes">Clinical or bed note</label>
-          <textarea id="doctorNotes" name="notes"></textarea>
+          <label for="doctorNotes">Clinical Notes</label>
+          <textarea id="doctorNotes" name="notes" rows="4" placeholder="Add clinical notes, observations..."></textarea>
         </div>
 
         <div class="button-row">
           <button id="doctorDrawerClose" class="btn btn-secondary" type="button">Cancel</button>
           <button class="btn btn-primary" type="submit">Save update</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <!-- Add Medicine Drawer -->
+  <div class="overlay" id="addMedicineOverlay">
+    <section class="drawer" aria-modal="true" role="dialog" aria-labelledby="addMedicineTitle">
+      <div class="drawer-handle" aria-hidden="true"></div>
+      <h3 id="addMedicineTitle">💊 Prescribe Medicine</h3>
+      <p>Prescribe a new medicine for one of your patients. The Ward Manager will be notified to administer it.</p>
+
+      <form id="addMedicineForm" class="form-grid">
+        <div class="form-group">
+          <label for="medicinePatientId">Patient / Bed</label>
+          <select id="medicinePatientId" name="bedId" required></select>
+        </div>
+
+        <div class="field-row">
+          <div class="form-group">
+            <label for="medicineName">Medicine Name</label>
+            <input id="medicineName" name="medicine" type="text" required placeholder="e.g. PCM 500mg" />
+          </div>
+          <div class="form-group">
+            <label for="medicineSchedule">Schedule / Timing</label>
+            <input id="medicineSchedule" name="schedule" type="text" required placeholder="e.g. STAT, TDS, 8am" />
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button id="addMedicineClose" class="btn btn-secondary" type="button">Cancel</button>
+          <button class="btn btn-primary" type="submit">Prescribe Medicine</button>
         </div>
       </form>
     </section>

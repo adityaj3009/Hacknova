@@ -21,21 +21,35 @@ async function initPage() {
     return;
   }
 
-  /* If already logged in, redirect to dashboard */
   const redirected = await redirectAuthedUser();
   if (redirected) return;
 
-  /* Prevent back-button from showing signup to logged-in users */
   window.addEventListener("pageshow", (event) => {
     if (event.persisted) redirectAuthedUser();
   });
+
+  /* Show/hide Doctor ID field based on role selection */
+  const roleSelect      = document.getElementById("role");
+  const doctorIdGroup   = document.getElementById("doctorIdGroup");
+  const doctorIdSelect  = document.getElementById("doctorId");
+
+  function toggleDoctorIdField() {
+    const isDoctor = roleSelect.value === "doctor";
+    doctorIdGroup.style.display = isDoctor ? "block" : "none";
+    doctorIdSelect.required = isDoctor;
+  }
+
+  roleSelect.addEventListener("change", toggleDoctorIdField);
+  toggleDoctorIdField(); // run on load
 
   const form = document.getElementById("signupForm");
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const formData = new FormData(form);
-    const password = String(formData.get("password") || "");
+    const password        = String(formData.get("password") || "");
     const confirmPassword = String(formData.get("confirmPassword") || "");
+    const role            = String(formData.get("role") || "manager");
+    const doctorId        = String(formData.get("doctorId") || "").trim();
 
     if (password.length < 6) {
       showToast("Password must be at least 6 characters.", "err");
@@ -47,20 +61,24 @@ async function initPage() {
       return;
     }
 
+    if (role === "doctor" && !doctorId) {
+      showToast("Please select your Doctor ID.", "err");
+      return;
+    }
+
     setBusy(form, true);
 
     try {
-      const role = String(formData.get("role") || "staff");
       await registerWithEmailPassword({
-        name: String(formData.get("name") || "").trim(),
-        email: String(formData.get("email") || "").trim(),
+        name:     String(formData.get("name") || "").trim(),
+        email:    String(formData.get("email") || "").trim(),
         password,
         role,
+        doctorId: role === "doctor" ? doctorId : null,
       });
 
       showToast("Account created! Redirecting to your dashboard...", "ok");
 
-      /* Redirect to the correct role dashboard — removes signup from history */
       window.setTimeout(() => {
         window.location.replace(redirectForRole(role));
       }, 400);
