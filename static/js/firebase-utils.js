@@ -567,14 +567,18 @@ export function computeBedPrediction(bed) {
     const remainingMs = expectedDischarge - now;
     const remainingMin = Math.max(0, remainingMs / 60000);
 
+    const date = new Date(expectedDischarge);
+    const timeStr = date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+    const isToday = new Date().toDateString() === date.toDateString();
+
     prediction.vacancyMinutes = remainingMin;
     prediction.vacancyLabel = remainingMin <= 0
       ? "Discharge overdue"
-      : `Discharge in ${formatDuration(remainingMin)}`;
+      : `Est. discharge: ${isToday ? 'Today' : date.toLocaleDateString("en-IN", { month: "short", day: "numeric" })} ${timeStr}`;
 
     /* Total ready = discharge + default cleaning */
     prediction.totalReadyMinutes = remainingMin + DEFAULT_CLEANING_MINUTES;
-    prediction.totalReadyLabel = `Ready in ${formatDuration(remainingMin + DEFAULT_CLEANING_MINUTES)}`;
+    prediction.totalReadyLabel = `Bed available in ${formatDuration(remainingMin + DEFAULT_CLEANING_MINUTES)}`;
 
     if (remainingMin <= 60) prediction.urgency = "soon";
     if (remainingMin <= 0) prediction.urgency = "overdue";
@@ -593,8 +597,8 @@ export function computeBedPrediction(bed) {
 
     prediction.totalReadyMinutes = remainingMin;
     prediction.totalReadyLabel = remainingMin <= 0
-      ? "Should be ready"
-      : `Ready in ${formatDuration(remainingMin)}`;
+      ? "Bed available now"
+      : `Bed available in ${formatDuration(remainingMin)}`;
 
     if (remainingMin <= 5) prediction.urgency = "soon";
     if (remainingMin <= 0) prediction.urgency = "overdue";
@@ -868,11 +872,40 @@ export function renderWaitingQueue(queue = []) {
   `;
 }
 
-export function renderEmergencyPanel(beds = {}) {
+export function renderEmergencyPanel(beds = {}, waitingQueue = []) {
   const ranked = getEmergencyRanking(beds);
   const top = ranked.slice(0, 8);
+  const now = Date.now();
+
+  const criticalQueue = waitingQueue.filter((p) => {
+    const waitMin = Math.round((now - (p.waitingSince || now)) / 60000);
+    return waitMin >= 30 || p.condition === "emergency" || p.condition === "icu";
+  }).sort((a, b) => (a.waitingSince || 0) - (b.waitingSince || 0));
+
+  const criticalHtml = criticalQueue.length ? `
+    <div class="emergency-critical-section" style="margin-bottom: 24px;">
+      <h4 style="color: var(--red); margin: 0 0 12px; font-weight: 800; display: flex; align-items: center; gap: 8px;">
+        <span class="spinner" style="border-color: rgba(220, 38, 38, 0.3); border-top-color: var(--red); width: 14px; height: 14px;"></span>
+        Critical Patients Waiting
+      </h4>
+      <div class="waiting-list">
+        ${criticalQueue.slice(0, 4).map(p => `
+          <article class="waiting-item waiting-alert" style="padding: 12px 16px;">
+            <div class="waiting-info">
+              <strong>${escapeHtml(p.name)}</strong>
+              <span class="waiting-condition">${escapeHtml(cap(p.condition))} — ${escapeHtml(p.notes || "No notes")}</span>
+            </div>
+            <div class="waiting-timer-wrap">
+              <span class="waiting-timer alert">${Math.round((now - (p.waitingSince || now)) / 60000)} min</span>
+            </div>
+          </article>
+        `).join("")}
+      </div>
+    </div>
+  ` : '';
 
   return `
+    ${criticalHtml}
     <div class="emergency-ranking">
       ${top.map((bed, idx) => `
         <article class="emergency-bed-item ${bed.status}">

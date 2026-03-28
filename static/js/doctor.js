@@ -62,7 +62,7 @@ function toggleEmergency() {
 
 function renderEmergencyContent() {
   if (!state.emergencyMode) return;
-  setHtml("emergencyContent", renderEmergencyPanel(state.beds));
+  setHtml("emergencyContent", renderEmergencyPanel(state.beds, state.waitingQueue));
 }
 
 /* ─── Modal ─── */
@@ -298,6 +298,7 @@ async function initPage() {
         state.waitingQueue = queue;
         renderWaiting();
         renderAlerts(); /* Re-compute alerts with waiting data */
+        renderEmergencyContent(); /* Live update emergency mode */
       });
 
       /* Live timer + predictions refresh every second */
