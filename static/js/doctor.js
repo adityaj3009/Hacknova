@@ -3,163 +3,218 @@ import {
   buildTopbar,
   computeAlerts,
   computeStats,
-  conditionCategoryOptions,
+  escapeHtml,
   formatDateTime,
-  getEmergencyRanking,
+  getDoctorById,
+  getDoctorName,
   getSortedBeds,
   getWardNames,
   initFirebase,
-  listenActivity,
+  listenAlerts,
+  listenAllMedicineAlerts,
   listenBeds,
   listenWaitingQueue,
   logout,
   populateWardFilter,
-  removeFromWaitingQueue,
-  renderActivityItems,
   renderAlertStrips,
-  renderEmergencyPanel,
   renderFatalState,
   renderPredictionSummary,
   renderWaitingQueue,
   requireAuth,
   seedBedsIfNeeded,
+  seedDoctorsIfNeeded,
   setHtml,
   setText,
   showToast,
-  statusOptions,
-  updateBedRecord,
+  updatePatientStatus,
+  addMedicineAlert,
+  relativeTime,
 } from "./firebase-utils.js";
 
 const state = {
   user: null,
   beds: {},
-  activity: [],
   waitingQueue: [],
+  managerAlerts: [],   // unresolved urgent alerts
+  medicineAlerts: [],  // all medicine alerts (pending + provided)
   ward: "all",
   search: "",
   activeBedId: null,
-  emergencyMode: false,
 };
 
 let timerInterval = null;
 
-/* ─── Emergency Mode ─── */
+/* ─── My Patients view (privacy-filtered) ─── */
 
-function toggleEmergency() {
-  state.emergencyMode = !state.emergencyMode;
-  const panel = document.getElementById("emergencyPanel");
-  const btn = document.getElementById("emergencyBtn");
-
-  if (state.emergencyMode) {
-    panel.classList.remove("hidden");
-    btn.classList.add("active");
-    renderEmergencyContent();
-  } else {
-    panel.classList.add("hidden");
-    btn.classList.remove("active");
-  }
-}
-
-function renderEmergencyContent() {
-  if (!state.emergencyMode) return;
-  setHtml("emergencyContent", renderEmergencyPanel(state.beds, state.waitingQueue));
-}
-
-/* ─── Modal ─── */
-
-function wireModal() {
-  const overlay = document.getElementById("doctorDrawerOverlay");
-  const closeButton = document.getElementById("doctorDrawerClose");
-  closeButton.addEventListener("click", closeEditor);
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) closeEditor();
+function getMyBeds() {
+  if (!state.user?.doctorId) return [];
+  return getSortedBeds(state.beds, {
+    ward: state.ward,
+    doctorId: state.user.doctorId,
+    search: state.search,
   });
 }
 
-function openEditor(bedId) {
-  const bed = state.beds[bedId];
-  if (!bed) return;
-
-  state.activeBedId = bedId;
-  setText("doctorDrawerTitle", `Update ${bed.id}`);
-  setText("doctorDrawerCopy", `${bed.ward} bed last updated ${formatDateTime(bed.updatedAt)}.`);
-  document.getElementById("doctorStatus").innerHTML = statusOptions(bed.status);
-  document.getElementById("doctorConditionCategory").innerHTML = conditionCategoryOptions(bed.conditionCategory || "");
-  document.getElementById("doctorPatientName").value = bed.patientName || "";
-  document.getElementById("doctorAssignedDoctor").value = bed.assignedDoctor || state.user.name || "";
-  document.getElementById("doctorReservedFor").value = bed.reservedFor || "";
-  document.getElementById("doctorNotes").value = bed.notes || "";
-  document.getElementById("doctorDrawerOverlay").classList.add("open");
-}
-
-function closeEditor() {
-  state.activeBedId = null;
-  document.getElementById("doctorDrawerOverlay").classList.remove("open");
+function getMyReservedBeds() {
+  if (!state.user?.doctorId) return [];
+  return Object.values(state.beds).filter(
+    (bed) => bed.status === "reserved" && bed.reservedDoctorId === state.user.doctorId
+  );
 }
 
 /* ─── Rendering ─── */
 
-function renderStats() {
-  const stats = computeStats(state.beds, { ward: state.ward });
-  setText("doctorTotalBeds", stats.total);
-  setText("doctorOccupiedBeds", stats.occupied);
-  setText("doctorAvailableBeds", stats.available);
-  setText("doctorCleaningBeds", stats.cleaning);
-  setText("doctorOccupancy", `${stats.occupancy}%`);
+function renderDoctorInfo() {
+  const doctorId = state.user?.doctorId;
+  if (!doctorId) {
+    setText("doctorIdChip", "No Doctor ID assigned");
+    setText("doctorSpec", "");
+    return;
+  }
+  const doc = getDoctorById(doctorId);
+  setText("doctorIdChip", doctorId);
+  setText("doctorSpec", doc ? `${doc.specialization} · ${doc.ward}` : "");
 }
 
-function renderBeds() {
+function renderStats() {
+  const myBeds = getMyBeds();
+  const occupied = myBeds.filter(b => b.status === "occupied").length;
+  const available = Object.values(state.beds).filter(b => b.status === "available").length;
+  const cleaning  = Object.values(state.beds).filter(b => b.status === "cleaning").length;
+  const reserved  = getMyReservedBeds().length;
+  const total     = Object.values(state.beds).length;
+  const occupancy = total ? Math.round((Object.values(state.beds).filter(b=>b.status==="occupied").length / total) * 100) : 0;
+
+  setText("doctorMyPatients",   myBeds.filter(b => b.status === "occupied").length);
+  setText("doctorReservedForMe", reserved);
+  setText("doctorTotalBeds",    total);
+  setText("doctorAvailableBeds", available);
+  setText("doctorOccupancy",    `${occupancy}%`);
+}
+
+function renderMyPatientsBeds() {
   const grid = document.getElementById("doctorBedGrid");
-  const beds = getSortedBeds(state.beds, { ward: state.ward, search: state.search });
+  const myBeds = getMyBeds();
   grid.innerHTML = "";
 
-  if (!beds.length) {
-    grid.innerHTML = '<div class="empty-state">No beds match the current filter.</div>';
+  if (!myBeds.length) {
+    grid.innerHTML = `<div class="empty-state">
+      ${state.user?.doctorId
+        ? "No patients assigned to your Doctor ID yet. Contact your Ward Manager."
+        : "⚠️ No Doctor ID linked to your account. Please sign up with a Doctor ID or contact Admin."}
+    </div>`;
     return;
   }
 
-  beds.forEach((bed) => {
+  myBeds.forEach((bed) => {
     const node = buildBedCard(bed, true);
     node.addEventListener("click", () => openEditor(bed.id));
     node.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        openEditor(bed.id);
-      }
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openEditor(bed.id); }
     });
     grid.appendChild(node);
   });
 }
 
-function renderAlerts() {
-  const alerts = computeAlerts(state.beds, state.waitingQueue);
-  setHtml("doctorAlerts", renderAlertStrips(alerts.slice(0, 8)));
+function renderReservedForMe() {
+  const container = document.getElementById("doctorReservedList");
+  const reserved = getMyReservedBeds();
+  if (!reserved.length) {
+    container.innerHTML = `<div class="empty-state">No beds currently reserved under your Doctor ID.</div>`;
+    return;
+  }
+  container.innerHTML = `
+    <div class="queue-list">
+      ${reserved.map(bed => `
+        <article class="queue-item reserved-item">
+          <div class="list-meta">
+            <strong>${escapeHtml(bed.id)}</strong>
+            <span class="status-chip reserved">Reserved</span>
+            <span>${escapeHtml(bed.ward)}</span>
+            <span>${escapeHtml(bed.reservedFor || "Incoming patient")}</span>
+            <span class="mono">${escapeHtml(relativeTime(bed.updatedAt))}</span>
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
 }
 
-function renderActivity() {
-  setHtml("doctorActivity", renderActivityItems(state.activity));
+function renderAlerts() {
+  const systemAlerts = computeAlerts(state.beds, state.waitingQueue, state.managerAlerts);
+  const doctorId = state.user?.doctorId;
+  const myAlerts = systemAlerts.filter((a) => {
+    if (!doctorId) return false;
+    if (a.sourceType === "medicine") return false;
+    return a.doctorId === doctorId;
+  });
+  setHtml("doctorAlerts", renderAlertStrips(myAlerts.slice(0, 8), false));
 }
+
+function renderMedicineAlerts() {
+  const allMedicine = state.medicineAlerts;
+  const doctorId = state.user?.doctorId;
+  // Show medicines prescribed by this doctor (or all if no doctorId)
+  const myMedicine = allMedicine.filter(a => !a.doctorId || a.doctorId === doctorId);
+
+  const container = document.getElementById("doctorMedicineAlerts");
+  if (!myMedicine.length) {
+    container.innerHTML = `<div class="empty-state">No medicine prescriptions yet. Use "+ Prescribe" to add one.</div>`;
+    return;
+  }
+
+  const pending  = myMedicine.filter(a => !a.resolved);
+  const provided = myMedicine.filter(a =>  a.resolved);
+
+  let html = `<div class="alert-list">`;
+
+  pending.forEach(a => {
+    html += `
+      <article class="alert-item medicine-alert-item">
+        <div class="item-head">
+          <h4 class="item-title">${escapeHtml(a.title)}</h4>
+          <div class="alert-badges">
+            <span class="escalation-flag">MEDICINE</span>
+            <span class="status-chip warning">Pending</span>
+          </div>
+        </div>
+        <p class="item-copy">${escapeHtml(a.medicine || a.copy)}${a.schedule ? ` · ${escapeHtml(a.schedule)}` : ""}</p>
+        <div class="item-time">⏳ Prescribed ${escapeHtml(relativeTime(a.createdAt))} · Awaiting Manager</div>
+      </article>
+    `;
+  });
+
+  provided.forEach(a => {
+    html += `
+      <article class="alert-item" style="opacity:0.7;">
+        <div class="item-head">
+          <h4 class="item-title">${escapeHtml(a.title)}</h4>
+          <div class="alert-badges">
+            <span class="escalation-flag" style="background:rgba(16,185,129,0.15);color:#065f46;">✓ PROVIDED</span>
+          </div>
+        </div>
+        <p class="item-copy">${escapeHtml(a.medicine || a.copy)}${a.schedule ? ` · ${escapeHtml(a.schedule)}` : ""}</p>
+        <div class="item-time">
+          Provided by ${escapeHtml(a.resolvedBy || "Manager")} · ${escapeHtml(relativeTime(a.resolvedAt || a.createdAt))}
+        </div>
+      </article>
+    `;
+  });
+
+  html += `</div>`;
+  container.innerHTML = html;
+}
+
+function renderWaiting() {
+  // Doctor sees queue read-only (no manage button)
+  setHtml("doctorWaitingQueue", renderWaitingQueue(state.waitingQueue, false));
+}
+
 
 function renderPredictions() {
   setHtml("doctorPredictions", renderPredictionSummary(state.beds));
 }
 
-function renderWaiting() {
-  setHtml("doctorWaitingQueue", renderWaitingQueue(state.waitingQueue));
-  /* Wire remove buttons */
-  document.querySelectorAll(".remove-waiting").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      try {
-        await removeFromWaitingQueue(undefined, btn.dataset.id);
-        showToast("Patient removed from queue.", "ok");
-      } catch (e) {
-        showToast(e.message, "err");
-      }
-    });
-  });
-}
-
-/* Live timer updates (1-second interval) */
 function updateTimers() {
   const now = Date.now();
   document.querySelectorAll(".waiting-timer[data-since]").forEach((el) => {
@@ -167,53 +222,97 @@ function updateTimers() {
     if (!since) return;
     const waitMin = Math.round((now - since) / 60000);
     el.textContent = `${waitMin} min`;
-    if (waitMin >= 30) {
-      el.classList.add("alert");
-    }
+    if (waitMin >= 30) el.classList.add("alert");
   });
 }
 
 function refreshHeader() {
   const now = new Date();
+  const doctorId = state.user?.doctorId;
+  const docInfo = doctorId ? getDoctorById(doctorId) : null;
   setText("doctorGreeting", `Welcome, ${state.user.name}`);
-  setText(
-    "doctorSubtitle",
-    `${now.toLocaleDateString("en-IN", {
-      weekday: "long", day: "numeric", month: "long", year: "numeric",
-    })} at ${now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`,
+  setText("doctorSubtitle", docInfo
+    ? `${docInfo.specialization} · ${docInfo.ward} — ${now.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}`
+    : now.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
   );
 }
 
 function render() {
   populateWardFilter("doctorWardFilter", getWardNames(state.beds));
   renderStats();
-  renderBeds();
+  renderDoctorInfo();
+  renderMyPatientsBeds();
+  renderReservedForMe();
   renderAlerts();
+  renderMedicineAlerts();
   renderPredictions();
-  renderEmergencyContent();
+  renderWaiting();
 }
 
-/* ─── Wiring ─── */
 
-function wireFilters() {
-  document.getElementById("doctorWardFilter").addEventListener("change", (e) => {
-    state.ward = e.target.value;
-    render();
-  });
+/* ─── Editor (Doctor — patient status only) ─── */
 
-  let searchTimeout;
-  document.getElementById("doctorSearch").addEventListener("input", (e) => {
-    clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(() => {
-      state.search = e.target.value;
-      renderBeds();
-    }, 150);
-  });
+function wireModal() {
+  const overlay = document.getElementById("doctorDrawerOverlay");
+  document.getElementById("doctorDrawerClose").addEventListener("click", closeEditor);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) closeEditor(); });
+
+  const medOverlay = document.getElementById("addMedicineOverlay");
+  document.getElementById("doctorAddMedicineBtn").addEventListener("click", openMedicineDrawer);
+  document.getElementById("addMedicineClose").addEventListener("click", closeMedicineDrawer);
+  medOverlay.addEventListener("click", (e) => { if (e.target === medOverlay) closeMedicineDrawer(); });
 }
 
-function wireEmergency() {
-  document.getElementById("emergencyBtn").addEventListener("click", toggleEmergency);
-  document.getElementById("emergencyClose").addEventListener("click", toggleEmergency);
+function openMedicineDrawer() {
+  const select = document.getElementById("medicinePatientId");
+  const myBeds = getMyBeds().filter(b => b.status === "occupied" && b.patientName);
+  
+  if (!myBeds.length) {
+    showToast("You have no occupied patients to prescribe medicine to.", "err");
+    return;
+  }
+
+  select.innerHTML = myBeds.map(b => `<option value="${b.id}">${b.id} — ${escapeHtml(b.patientName)}</option>`).join("");
+  document.getElementById("addMedicineForm").reset();
+  document.getElementById("addMedicineOverlay").classList.add("open");
+}
+
+function closeMedicineDrawer() {
+  document.getElementById("addMedicineOverlay").classList.remove("open");
+}
+
+function openEditor(bedId) {
+  const bed = state.beds[bedId];
+  if (!bed) return;
+
+  // Verify this is doctor's own bed
+  if (bed.assignedDoctor && bed.assignedDoctor !== state.user?.doctorId) {
+    showToast("You can only update your own patients.", "err");
+    return;
+  }
+
+  state.activeBedId = bedId;
+  setText("doctorDrawerTitle", `Update Patient — ${bed.id}`);
+  setText("doctorDrawerCopy", `${bed.ward} · ${bed.patientName || "No patient"} · Last updated ${formatDateTime(bed.updatedAt)}.`);
+  document.getElementById("doctorPatientName").value = bed.patientName || "";
+
+  const statusSelect = document.getElementById("doctorPatientStatus");
+  const currentStatus = bed.patientStatus || "";
+  statusSelect.innerHTML = `
+    <option value="" ${!currentStatus ? "selected" : ""}>— Select Status —</option>
+    <option value="stable" ${currentStatus === "stable" ? "selected" : ""}>Stable</option>
+    <option value="critical" ${currentStatus === "critical" ? "selected" : ""}>Critical</option>
+    <option value="discharge_ready" ${currentStatus === "discharge_ready" ? "selected" : ""}>Discharge Ready</option>
+    <option value="under_observation" ${currentStatus === "under_observation" ? "selected" : ""}>Under Observation</option>
+    <option value="improving" ${currentStatus === "improving" ? "selected" : ""}>Improving</option>
+  `;
+  document.getElementById("doctorNotes").value = bed.notes || "";
+  document.getElementById("doctorDrawerOverlay").classList.add("open");
+}
+
+function closeEditor() {
+  state.activeBedId = null;
+  document.getElementById("doctorDrawerOverlay").classList.remove("open");
 }
 
 function wireForm(db) {
@@ -228,28 +327,73 @@ function wireForm(db) {
 
     try {
       const fd = new FormData(form);
-      await updateBedRecord(
+      await updatePatientStatus(
         db,
         state.activeBedId,
         {
-          status: String(fd.get("status") || "available"),
-          patientName: String(fd.get("patientName") || "").trim(),
-          assignedDoctor: String(fd.get("assignedDoctor") || "").trim(),
-          reservedFor: String(fd.get("reservedFor") || "").trim(),
+          patientStatus: String(fd.get("patientStatus") || ""),
           notes: String(fd.get("notes") || "").trim(),
-          conditionCategory: String(fd.get("conditionCategory") || ""),
         },
         state.user,
       );
       closeEditor();
-      showToast("Bed updated in real-time.", "ok");
+      showToast("Patient status updated.", "ok");
     } catch (error) {
       console.error(error);
-      showToast(error.message || "Could not save the bed.", "err");
+      showToast(error.message || "Could not save.", "err");
     } finally {
       btn.disabled = false;
       btn.textContent = "Save update";
     }
+  });
+
+  const medForm = document.getElementById("addMedicineForm");
+  medForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = medForm.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" aria-hidden="true"></span> Adding...';
+
+    try {
+      const fd = new FormData(medForm);
+      const bedId = fd.get("bedId");
+      const bed = state.beds[bedId];
+      if (!bed) throw new Error("Bed not found");
+
+      await addMedicineAlert(db, {
+        patientName: bed.patientName,
+        medicine: String(fd.get("medicine")).trim(),
+        schedule: String(fd.get("schedule")).trim(),
+        bedId: bedId,
+        doctorId: state.user.doctorId,
+      }, state.user);
+
+      showToast("Medicine prescribed successfully.", "ok");
+      closeMedicineDrawer();
+    } catch (error) {
+      console.error(error);
+      showToast(error.message || "Failed to add medicine.", "err");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Prescribe Medicine";
+    }
+  });
+}
+
+function wireFilters() {
+  document.getElementById("doctorWardFilter").addEventListener("change", (e) => {
+    state.ward = e.target.value;
+    renderMyPatientsBeds();
+    renderStats();
+  });
+
+  let searchTimeout;
+  document.getElementById("doctorSearch").addEventListener("input", (e) => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+      state.search = e.target.value;
+      renderMyPatientsBeds();
+    }, 150);
   });
 }
 
@@ -266,16 +410,13 @@ async function initPage() {
 
   wireModal();
   wireFilters();
-  wireEmergency();
   wireForm(db);
   document.getElementById("logoutButton").addEventListener("click", logout);
 
   requireAuth(
     async (session) => {
       state.user = session;
-      /* Replace history so back-button can't reach login */
       window.history.replaceState(null, "", window.location.href);
-      /* Block trackpad swipe-back gesture */
       window.history.pushState(null, "", window.location.href);
       window.addEventListener("popstate", () => {
         window.history.pushState(null, "", window.location.href);
@@ -283,33 +424,33 @@ async function initPage() {
       buildTopbar(session.name, session.role);
       refreshHeader();
       await seedBedsIfNeeded(db);
+      await seedDoctorsIfNeeded(db);
 
       listenBeds(db, (beds) => {
         state.beds = beds;
         render();
       });
 
-      listenActivity(db, (activity) => {
-        state.activity = activity;
-        renderActivity();
-      });
-
       listenWaitingQueue(db, (queue) => {
         state.waitingQueue = queue;
         renderWaiting();
-        renderAlerts(); /* Re-compute alerts with waiting data */
-        renderEmergencyContent(); /* Live update emergency mode */
+        renderAlerts();
       });
 
-      /* Live timer + predictions refresh every second */
-      timerInterval = window.setInterval(() => {
-        updateTimers();
-      }, 1000);
+      listenAlerts(db, (alerts) => {
+        state.managerAlerts = alerts;
+        renderAlerts();
+      });
 
-      /* Refresh predictions and emergency every 30s */
+      // Separate listener for medicine prescriptions (includes resolved/provided)
+      listenAllMedicineAlerts(db, (medicines) => {
+        state.medicineAlerts = medicines;
+        renderMedicineAlerts();
+      });
+
+      timerInterval = window.setInterval(updateTimers, 1000);
       window.setInterval(() => {
         renderPredictions();
-        renderEmergencyContent();
         renderAlerts();
         refreshHeader();
       }, 30000);

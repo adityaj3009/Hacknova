@@ -4,10 +4,10 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, redirect, render_template, send_from_directory, url_for
+from flask import Flask, redirect, render_template, send_from_directory, url_for
 
 BASE_DIR = Path(__file__).resolve().parent
-load_dotenv(BASE_DIR / ".env")
+load_dotenv(BASE_DIR / ".env", override=True)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.secret_key = os.getenv("SECRET_KEY", "wardwatch-secret")
@@ -48,22 +48,22 @@ def doctor_dashboard():
     return render_template("doctor.html", config=FIREBASE_CONFIG)
 
 
+@app.route("/dashboard/manager")
+def manager_dashboard():
+    """Render the manager (ward manager) dashboard."""
+    return render_template("manager.html", config=FIREBASE_CONFIG)
+
+
 @app.route("/dashboard/staff")
-def staff_dashboard():
-    """Render the staff dashboard."""
-    return render_template("staff.html", config=FIREBASE_CONFIG)
+def staff_dashboard_legacy():
+    """Redirect legacy staff route to manager dashboard."""
+    return redirect(url_for("manager_dashboard"))
 
 
 @app.route("/dashboard/admin")
 def admin_dashboard():
     """Render the admin dashboard."""
     return render_template("admin.html", config=FIREBASE_CONFIG)
-
-
-@app.route("/api/config")
-def get_config():
-    """Expose Firebase config to the browser."""
-    return jsonify(FIREBASE_CONFIG)
 
 
 @app.route("/photos/<path:filename>")

@@ -41,6 +41,60 @@ const AVG_STAY_HOURS = {
 const DEFAULT_CLEANING_MINUTES = 20;
 const CONDITION_CATEGORIES = ["general", "surgery", "emergency", "icu", "maternity"];
 
+/* ─── Doctor Registry ─── */
+export const DOCTOR_REGISTRY = {
+  "DR-001": { name: "Dr. Anil Kapoor",  specialization: "Cardiology",   ward: "Ward A" },
+  "DR-002": { name: "Dr. Sneha Reddy",  specialization: "Neurology",    ward: "Ward A" },
+  "DR-003": { name: "Dr. Vikram Mehta", specialization: "Surgery",      ward: "Ward B" },
+  "DR-004": { name: "Dr. Priya Iyer",   specialization: "Maternity",    ward: "Ward B" },
+  "DR-005": { name: "Dr. Rajan Nair",   specialization: "Emergency",    ward: "Ward C" },
+  "DR-006": { name: "Dr. Kavita Shah",  specialization: "ICU",          ward: "Ward C" },
+};
+
+export function getDoctorById(doctorId) {
+  return DOCTOR_REGISTRY[doctorId] || null;
+}
+
+export function getDoctorName(doctorId) {
+  const doc = getDoctorById(doctorId);
+  return doc ? doc.name : doctorId || "Unknown";
+}
+
+/* Allowed bed status transitions per role */
+const VALID_TRANSITIONS = {
+  manager: {
+    occupied: ["cleaning"],
+    cleaning: ["available"],
+    available: ["occupied", "reserved"],
+    reserved:  ["occupied", "available", "cleaning"],
+  },
+  staff: {
+    occupied: ["cleaning"],
+    cleaning: ["available"],
+    available: ["occupied", "reserved"],
+    reserved:  ["occupied", "available", "cleaning"],
+  },
+  doctor: {}, // doctors cannot change bed status
+  admin:  {}, // admin is read-only
+};
+
+export function validateBedTransition(currentStatus, nextStatus, actorRole) {
+  if (actorRole === "doctor" || actorRole === "admin") {
+    throw new Error("You do not have permission to change bed status.");
+  }
+  const allowed = (VALID_TRANSITIONS[actorRole] || {})[currentStatus] || [];
+  // Manager can also keep same status when just updating notes/patient info
+  if (nextStatus !== currentStatus && !allowed.includes(nextStatus)) {
+    throw new Error(
+      `Invalid bed transition: ${currentStatus} → ${nextStatus}. ` +
+      `Allowed: ${allowed.join(", ") || "none"}.`
+    );
+  }
+}
+
+/* Priority ordering for waiting queue */
+const PRIORITY_ORDER = { emergency: 0, urgent: 1, normal: 2 };
+
 let appInstance = null;
 let authInstance = null;
 let dbInstance = null;
@@ -64,6 +118,10 @@ function assertInitialized() {
 
 function normalizeConfig(config) {
   return config || {};
+}
+
+function normalizeRole(role = "") {
+  return role === "staff" ? "manager" : role;
 }
 
 export function validateFirebaseConfig(config) {
@@ -180,11 +238,12 @@ export function showToast(message, type = "ok") {
 
 export function redirectForRole(role) {
   const map = {
-    admin:  "/dashboard/admin",
-    doctor: "/dashboard/doctor",
-    staff:  "/dashboard/staff",
+    admin:   "/dashboard/admin",
+    doctor:  "/dashboard/doctor",
+    staff:   "/dashboard/manager",
+    manager: "/dashboard/manager",
   };
-  return map[role] || "/";
+  return map[normalizeRole(role)] || "/";
 }
 
 export function navigateToRole(role) {
@@ -199,29 +258,43 @@ export async function getProfile(db = dbInstance, uid) {
 export async function loginWithEmailPassword({ email, password }) {
   assertInitialized();
   const cred = await signInWithEmailAndPassword(authInstance, email, password);
-  /* Return profile so caller can redirect immediately */
   const profile = await getProfile(dbInstance, cred.user.uid);
   return { cred, profile };
 }
 
-export async function registerWithEmailPassword({ name, email, password, role }) {
+export async function registerWithEmailPassword({ name, email, password, role, doctorId }) {
   assertInitialized();
   const credentials = await createUserWithEmailAndPassword(authInstance, email, password);
   await updateProfile(credentials.user, { displayName: name });
-  await set(ref(dbInstance, `profiles/${credentials.user.uid}`), {
+  const normalizedRole = normalizeRole(role);
+  const profileData = {
     uid: credentials.user.uid,
     name,
     email,
-    role,
+    role: normalizedRole,
     createdAt: Date.now(),
-  });
+  };
+  if (doctorId) profileData.doctorId = doctorId;
+  await set(ref(dbInstance, `profiles/${credentials.user.uid}`), profileData);
+
+  if (normalizedRole === "doctor" && doctorId) {
+    const doctorMeta = getDoctorById(doctorId) || {};
+    await update(ref(dbInstance, `doctors/${doctorId}`), {
+      doctorId,
+      uid: credentials.user.uid,
+      name: doctorMeta.name || name,
+      email,
+      specialization: doctorMeta.specialization || "",
+      ward: doctorMeta.ward || "",
+    });
+  }
+
   await pushActivity(dbInstance, {
     title: "New user registered",
-    copy: `${name} created a ${role} account.`,
+    copy: `${name} created a ${normalizedRole} account.`,
     level: "info",
   });
-  /* Return profile so caller can redirect to role dashboard */
-  return { credentials, role };
+  return { credentials, role: normalizedRole };
 }
 
 export async function redirectAuthedUser() {
@@ -258,7 +331,9 @@ export function requireAuth(callback, options = {}) {
         if (redirectIfMissing) window.location.replace("/");
         return;
       }
-      if (allowRoles.length && !allowRoles.includes(profile.role)) {
+      const normalizedRole = normalizeRole(profile.role);
+
+      if (allowRoles.length && !allowRoles.includes(normalizedRole)) {
         window.location.replace(redirectForRole(profile.role));
         return;
       }
@@ -267,7 +342,8 @@ export function requireAuth(callback, options = {}) {
         uid: user.uid,
         name: profile.name || user.displayName || "Team member",
         email: profile.email || user.email || "",
-        role: profile.role,
+        role: normalizedRole,
+        doctorId: profile.doctorId || null,
       });
     } catch (error) {
       console.error(error);
@@ -305,19 +381,111 @@ export function listenWaitingQueue(db = dbInstance, callback) {
     const raw = snapshot.val() || {};
     const items = Object.entries(raw)
       .map(([id, value]) => ({ id, ...value }))
-      .sort((a, b) => (a.waitingSince || 0) - (b.waitingSince || 0));
+      .sort((a, b) => {
+        const pA = PRIORITY_ORDER[a.priority] ?? 2;
+        const pB = PRIORITY_ORDER[b.priority] ?? 2;
+        if (pA !== pB) return pA - pB;
+        return (a.waitingSince || 0) - (b.waitingSince || 0);
+      });
     callback(items);
+  });
+}
+
+export function listenAlerts(db = dbInstance, callback) {
+  return onValue(ref(db, "managerAlerts"), (snapshot) => {
+    const raw = snapshot.val() || {};
+    const items = Object.entries(raw)
+      .map(([id, value]) => ({ id, ...value }))
+      .filter((a) => !a.resolved)
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    callback(items);
+  });
+}
+
+/* For doctor view: includes resolved medicine alerts so they can see 'Provided' status */
+export function listenAllMedicineAlerts(db = dbInstance, callback) {
+  return onValue(ref(db, "managerAlerts"), (snapshot) => {
+    const raw = snapshot.val() || {};
+    const items = Object.entries(raw)
+      .map(([id, value]) => ({ id, ...value }))
+      .filter((a) => a.type === "medicine")
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+      .slice(0, 20); // keep last 20 medicine prescriptions
+    callback(items);
+  });
+}
+
+
+export function listenDoctors(db = dbInstance, callback) {
+  return onValue(ref(db, "doctors"), (snapshot) => {
+    callback(snapshot.val() || {});
   });
 }
 
 /* ─── waiting queue CRUD ─── */
 
+/* Pick the best matching doctor for a bed (same ward preferred, else any) */
+function pickDoctorForBed(bed, docsObj) {
+  const bedWard = (bed.ward || "").toLowerCase();
+  // 1. patient already has a preferred doctor → honour it
+  // 2. same-ward doctor
+  // 3. any doctor
+  const allDocs = Object.entries(docsObj);
+  const sameWard = allDocs.filter(([, d]) => (d.ward || "").toLowerCase() === bedWard);
+  if (sameWard.length) return sameWard[0][0];
+  if (allDocs.length) return allDocs[0][0];
+  return "DR-001";
+}
+
 export async function addToWaitingQueue(db = dbInstance, patient) {
+  // First, check if there's any available bed
+  const bedsSnap = await get(ref(db, "beds"));
+  const beds = bedsSnap.val() || {};
+  // Sort available beds: prefer smallest bed number
+  const availableBeds = Object.values(beds)
+    .filter(b => b.status === "available")
+    .sort((a, b) => (a.ward || "").localeCompare(b.ward || "") || (a.number || 0) - (b.number || 0));
+
+  if (availableBeds.length > 0) {
+    // We have an available bed, admit immediately
+    const targetBed = availableBeds[0];
+    const bedId = targetBed.id;
+
+    // Pick doctor — prefer same ward as bed
+    const docSnap = await get(ref(db, "doctors"));
+    const docsObj = docSnap.val() || DOCTOR_REGISTRY;
+    const docId = patient.doctorId || pickDoctorForBed(targetBed, docsObj);
+
+    const now = Date.now();
+    await update(ref(db, `beds/${bedId}`), {
+      status: "occupied",
+      patientName: patient.name,
+      assignedDoctor: docId,
+      conditionCategory: patient.condition || "general",
+      notes: patient.notes ? `[Auto-admitted] ${patient.notes}` : "Auto-admitted immediately.",
+      updatedAt: now,
+      admittedAt: now,
+      cleaningStartedAt: 0,
+      reservedFor: "",
+      reservedDoctorId: "",
+    });
+
+    await pushActivity(db, {
+      title: `Auto-admitted to ${bedId}`,
+      copy: `${patient.name} admitted immediately (Priority: ${patient.priority || "normal"}). Bed: ${bedId}. Doctor: ${DOCTOR_REGISTRY[docId]?.name || docId}.`,
+      level: "warning",
+    });
+    return null; // Don't add to queue
+  }
+
+  // No available bed — add to queue
   return push(ref(db, "waitingQueue"), {
     name: patient.name,
     condition: patient.condition || "general",
+    priority: patient.priority || "normal",
     waitingSince: Date.now(),
     notes: patient.notes || "",
+    doctorId: patient.doctorId || "",
   });
 }
 
@@ -325,19 +493,232 @@ export async function removeFromWaitingQueue(db = dbInstance, patientId) {
   return remove(ref(db, `waitingQueue/${patientId}`));
 }
 
+export function getNextQueueSuggestion(queue = []) {
+  if (!queue.length) return null;
+  // Already sorted by priority then time
+  return queue[0];
+}
+
+/* ─── alert CRUD (Manager only) ─── */
+
+export async function addMedicineAlert(db = dbInstance, payload, actor) {
+  const alertRef = await push(ref(db, "managerAlerts"), {
+    type: "medicine",
+    title: `💊 Medicine: ${payload.patientName}`,
+    copy: `${payload.medicine} — ${payload.schedule}`,
+    bedId: payload.bedId || "",
+    doctorId: payload.doctorId || "",
+    patientName: payload.patientName || "",
+    medicine: payload.medicine || "",
+    schedule: payload.schedule || "",
+    prescribedAt: Date.now(),
+    resolved: false,
+    createdAt: Date.now(),
+    createdBy: actor.name,
+    createdByRole: actor.role,
+  });
+  await pushActivity(db, {
+    title: "Medicine alert added",
+    copy: `${actor.name} added medicine alert for ${payload.patientName}.`,
+    level: "info",
+  });
+  return alertRef;
+}
+
+export async function addUrgentAlert(db = dbInstance, payload, actor) {
+  const alertRef = await push(ref(db, "managerAlerts"), {
+    type: "urgent",
+    title: `🆘 Urgent: ${payload.patientName}`,
+    copy: payload.description || "Urgent help needed.",
+    bedId: payload.bedId || "",
+    doctorId: payload.doctorId || "",
+    patientName: payload.patientName || "",
+    resolved: false,
+    createdAt: Date.now(),
+    createdBy: actor.name,
+    createdByRole: actor.role,
+  });
+  await pushActivity(db, {
+    title: "Urgent alert raised",
+    copy: `${actor.name} raised urgent alert for ${payload.patientName}.`,
+    level: "warning",
+  });
+  return alertRef;
+}
+
+export async function resolveAlert(db = dbInstance, alertId) {
+  const alertRef = ref(db, `managerAlerts/${alertId}`);
+  const snap = await get(alertRef);
+  if (snap.exists()) {
+    const alertData = snap.val();
+    if (alertData.type === "medicine" && alertData.bedId) {
+      const bedRef = ref(db, `beds/${alertData.bedId}`);
+      const bedSnap = await get(bedRef);
+      if (bedSnap.exists()) {
+        const bedData = bedSnap.val();
+        const timeStr = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+        const medName = alertData.copy.split("—")[0].trim();
+        const newNote = bedData.notes
+          ? `${bedData.notes}\n[System] Medicine ${medName} administered at ${timeStr}.`
+          : `[System] Medicine ${medName} administered at ${timeStr}.`;
+        await update(bedRef, { notes: newNote });
+      }
+    }
+  }
+  await update(alertRef, { resolved: true, resolvedAt: Date.now() });
+}
+
+/* Mark medicine as provided — manager action */
+export async function markMedicineProvided(db = dbInstance, alertId, actor) {
+  const alertRef = ref(db, `managerAlerts/${alertId}`);
+  const snap = await get(alertRef);
+  if (!snap.exists()) throw new Error("Alert not found.");
+  const alertData = snap.val();
+  if (alertData.type !== "medicine") throw new Error("Not a medicine alert.");
+
+  const now = Date.now();
+  const timeStr = new Date(now).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+  const medicineName = (alertData.medicine || String(alertData.copy || "").split("â€”")[0] || "Medicine").trim();
+
+  // Update bed notes to record administration
+  if (alertData.bedId) {
+    const bedRef = ref(db, `beds/${alertData.bedId}`);
+    const bedSnap = await get(bedRef);
+    if (bedSnap.exists()) {
+      const bedData = bedSnap.val();
+      const medName = alertData.copy.split("—")[0].trim();
+      const newNote = bedData.notes
+        ? `${bedData.notes}\n[${timeStr}] ${medicineName} administered by ${actor.name}.`
+        : `[${timeStr}] ${medicineName} administered by ${actor.name}.`;
+      await update(bedRef, { notes: newNote, updatedAt: now });
+    }
+  }
+
+  // Mark alert as resolved with provider info
+  await update(alertRef, {
+    resolved: true,
+    resolvedAt: now,
+    providedAt: now,
+    resolvedBy: actor.name,
+    resolvedByRole: actor.role,
+    doctorNotifiedAt: now,
+  });
+
+  await pushActivity(db, {
+    title: `💊 Medicine provided — ${alertData.patientName || "Patient"}`,
+    copy: `${actor.name} administered ${alertData.copy.split("—")[0].trim()} at ${timeStr}.`,
+    level: "ok",
+  });
+}
+
+/* ─── bed reservation (Manager only) ─── */
+
+export async function reserveBed(db = dbInstance, bedId, reservation, actor) {
+  const bedRef = ref(db, `beds/${bedId}`);
+  const snapshot = await get(bedRef);
+  if (!snapshot.exists()) throw new Error("Bed not found.");
+
+  const current = snapshot.val();
+  if (current.status !== "available") {
+    throw new Error(`Bed ${bedId} is not available. Current status: ${current.status}.`);
+  }
+
+  const now = Date.now();
+  await update(bedRef, {
+    status: "reserved",
+    reservedFor: reservation.patientName,
+    reservedDoctorId: reservation.doctorId,
+    reservationTime: reservation.reservationTime || now,
+    notes: `Reserved for ${reservation.patientName} under ${reservation.doctorId}.`,
+    updatedAt: now,
+    updatedByName: actor.name,
+    updatedByRole: actor.role,
+    patientName: "",
+    assignedDoctor: "",
+    cleaningStartedAt: 0,
+  });
+
+  await pushActivity(db, {
+    title: `${bedId} reserved`,
+    copy: `${actor.name} reserved ${bedId} for ${reservation.patientName} (${reservation.doctorId}).`,
+    level: "info",
+  });
+}
+
+/* ─── patient transfer (Manager only) ─── */
+
+export async function transferPatient(db = dbInstance, fromBedId, toBedId, transferType, actor) {
+  const fromRef = ref(db, `beds/${fromBedId}`);
+  const toRef   = ref(db, `beds/${toBedId}`);
+
+  const [fromSnap, toSnap] = await Promise.all([get(fromRef), get(toRef)]);
+  if (!fromSnap.exists()) throw new Error(`Source bed ${fromBedId} not found.`);
+  if (!toSnap.exists())   throw new Error(`Target bed ${toBedId} not found.`);
+
+  const from = fromSnap.val();
+  const to   = toSnap.val();
+
+  if (from.status !== "occupied") {
+    throw new Error(`Source bed ${fromBedId} is not occupied.`);
+  }
+  if (to.status !== "available" && to.status !== "reserved") {
+    throw new Error(`Target bed ${toBedId} is not available for transfer.`);
+  }
+
+  const now = Date.now();
+  await update(toRef, {
+    status: "occupied",
+    patientName: from.patientName,
+    assignedDoctor: from.assignedDoctor,
+    conditionCategory: from.conditionCategory,
+    notes: `Transferred from ${fromBedId} (${transferType}).`,
+    admittedAt: from.admittedAt || now,
+    cleaningStartedAt: 0,
+    reservedFor: "",
+    reservedDoctorId: "",
+    updatedAt: now,
+    updatedByName: actor.name,
+    updatedByRole: actor.role,
+  });
+
+  await update(fromRef, {
+    status: "cleaning",
+    patientName: "",
+    assignedDoctor: "",
+    conditionCategory: "",
+    reservedFor: "",
+    reservedDoctorId: "",
+    notes: `Patient transferred to ${toBedId}. Cleaning in progress.`,
+    cleaningStartedAt: now,
+    updatedAt: now,
+    updatedByName: actor.name,
+    updatedByRole: actor.role,
+  });
+
+  await pushActivity(db, {
+    title: `Patient transferred ${fromBedId} → ${toBedId}`,
+    copy: `${actor.name}: ${transferType} — ${from.patientName || "Patient"}.`,
+    level: "warning",
+  });
+}
+
 /* ─── bed queries ─── */
 
 export function getSortedBeds(beds = {}, options = {}) {
-  const { ward = "all", search = "" } = options;
+  const { ward = "all", search = "", doctorId = null } = options;
   const searchText = search.trim().toLowerCase();
 
   return Object.values(beds)
     .filter((bed) => (ward === "all" ? true : bed.ward === ward))
     .filter((bed) => {
+      if (!doctorId) return true;
+      return bed.assignedDoctor === doctorId || bed.reservedDoctorId === doctorId;
+    })
+    .filter((bed) => {
       if (!searchText) return true;
       const haystack = [
         bed.id, bed.ward, bed.patientName, bed.assignedDoctor,
-        bed.notes, bed.reservedFor, bed.conditionCategory,
+        bed.notes, bed.reservedFor, bed.conditionCategory, bed.reservedDoctorId,
       ].filter(Boolean).join(" ").toLowerCase();
       return haystack.includes(searchText);
     })
@@ -355,6 +736,17 @@ function buildSeedBeds() {
     { name: "Ward B", prefix: "B", capacity: 8 },
     { name: "Ward C", prefix: "C", capacity: 8 },
   ];
+
+  // Beds per doctor: each doctor gets ~4 beds
+  const doctorBedMap = {
+    "A-01": "DR-001", "A-02": "DR-001", "A-03": "DR-001", "A-04": "DR-001",
+    "A-05": "DR-002", "A-06": "DR-002", "A-07": "DR-002", "A-08": "DR-002",
+    "B-01": "DR-003", "B-02": "DR-003", "B-03": "DR-003", "B-04": "DR-003",
+    "B-05": "DR-004", "B-06": "DR-004", "B-07": "DR-004", "B-08": "DR-004",
+    "C-01": "DR-005", "C-02": "DR-005", "C-03": "DR-005", "C-04": "DR-005",
+    "C-05": "DR-006", "C-06": "DR-006", "C-07": "DR-006", "C-08": "DR-006",
+  };
+
   const statusPattern = [
     "occupied", "available", "cleaning", "occupied",
     "reserved", "available", "occupied", "available",
@@ -364,25 +756,21 @@ function buildSeedBeds() {
     "Rahul Sharma", "Priya Patel", "Amit Kumar", "Sita Devi",
     "Vikram Singh", "Anita Gupta", "Rajesh Verma", "Meera Joshi",
   ];
-  const doctorNames = [
-    "Dr. Anil Kapoor", "Dr. Sneha Reddy", "Dr. Vikram Mehta", "Dr. Priya Iyer",
-    "Dr. Rajan Nair", "Dr. Kavita Shah", "Dr. Suresh Rao", "Dr. Neha Gupta",
-  ];
   const now = Date.now();
   const beds = {};
 
   wards.forEach((ward, wardIndex) => {
     for (let i = 1; i <= ward.capacity; i++) {
       const status = statusPattern[(i - 1 + wardIndex) % statusPattern.length];
-      const bedId = `${ward.prefix}-${String(i).padStart(2, "0")}`;
+      const bedId = `${ward.prefix}-0${i}`;
       const condCat = conditionPattern[(i - 1 + wardIndex) % conditionPattern.length];
       const pIdx = (i - 1 + wardIndex) % patientNames.length;
+      const doctorId = doctorBedMap[bedId] || "DR-001";
+      const doctorName = DOCTOR_REGISTRY[doctorId]?.name || doctorId;
 
-      /* Randomize admission time: 1-48 hours ago for occupied beds */
       const admittedHoursAgo = (Math.random() * 47 + 1);
       const admittedAt = status === "occupied" ? now - admittedHoursAgo * 3600000 : 0;
 
-      /* Cleaning started 5-25 min ago for cleaning beds */
       const cleaningMinsAgo = Math.random() * 20 + 5;
       const cleaningStartedAt = status === "cleaning" ? now - cleaningMinsAgo * 60000 : 0;
 
@@ -392,8 +780,9 @@ function buildSeedBeds() {
         number: i,
         status,
         patientName: status === "occupied" ? patientNames[pIdx] : "",
-        assignedDoctor: status === "occupied" ? doctorNames[pIdx] : "",
+        assignedDoctor: status === "occupied" ? doctorId : "",
         reservedFor: status === "reserved" ? `Admission ${ward.prefix}${i}` : "",
+        reservedDoctorId: status === "reserved" ? doctorId : "",
         conditionCategory: status === "occupied" ? condCat : "",
         admittedAt,
         cleaningStartedAt,
@@ -401,9 +790,9 @@ function buildSeedBeds() {
           status === "cleaning"
             ? "Housekeeping in progress — linen change."
             : status === "occupied"
-              ? `Under observation. Category: ${cap(condCat)}.`
+              ? `Under observation. Category: ${cap(condCat)}. Dr: ${doctorName}`
               : status === "reserved"
-                ? "Reserved for incoming patient."
+                ? `Reserved for incoming patient under ${doctorId}.`
                 : "Bed ready and sanitized.",
         updatedAt: now - i * 1800000,
         updatedByName: "System",
@@ -418,12 +807,20 @@ function buildSeedBeds() {
 function buildSeedWaitingQueue() {
   const now = Date.now();
   return {
-    w1: { name: "Rahul Mehra",   condition: "general",   waitingSince: now - 25 * 60000, notes: "Fever and body pain" },
-    w2: { name: "Sita Kumari",   condition: "emergency",  waitingSince: now - 40 * 60000, notes: "Chest pain, needs urgent bed" },
-    w3: { name: "Arvind Joshi",  condition: "surgery",    waitingSince: now - 15 * 60000, notes: "Post-op recovery bed needed" },
-    w4: { name: "Priya Nair",    condition: "maternity",  waitingSince: now - 32 * 60000, notes: "Expected delivery" },
-    w5: { name: "Karan Malhotra", condition: "icu",       waitingSince: now - 10 * 60000, notes: "Severe trauma" },
+    w1: { name: "Rahul Mehra",    condition: "general",   priority: "normal",    waitingSince: now - 25 * 60000, notes: "Fever and body pain", doctorId: "DR-001" },
+    w2: { name: "Sita Kumari",    condition: "emergency",  priority: "emergency", waitingSince: now - 40 * 60000, notes: "Chest pain, needs urgent bed", doctorId: "DR-005" },
+    w3: { name: "Arvind Joshi",   condition: "surgery",    priority: "urgent",    waitingSince: now - 15 * 60000, notes: "Post-op recovery bed needed", doctorId: "DR-003" },
+    w4: { name: "Priya Nair",     condition: "maternity",  priority: "urgent",    waitingSince: now - 32 * 60000, notes: "Expected delivery", doctorId: "DR-004" },
+    w5: { name: "Karan Malhotra", condition: "icu",        priority: "emergency", waitingSince: now - 10 * 60000, notes: "Severe trauma", doctorId: "DR-006" },
   };
+}
+
+function buildSeedDoctors() {
+  const doctors = {};
+  Object.entries(DOCTOR_REGISTRY).forEach(([id, info]) => {
+    doctors[id] = { ...info, doctorId: id };
+  });
+  return doctors;
 }
 
 export async function seedBedsIfNeeded(db = dbInstance) {
@@ -437,10 +834,16 @@ export async function seedBedsIfNeeded(db = dbInstance) {
     });
   }
 
-  /* Also seed waiting queue */
   const wqSnap = await get(ref(db, "waitingQueue"));
   if (!wqSnap.exists()) {
     await set(ref(db, "waitingQueue"), buildSeedWaitingQueue());
+  }
+}
+
+export async function seedDoctorsIfNeeded(db = dbInstance) {
+  const snapshot = await get(ref(db, "doctors"));
+  if (!snapshot.exists()) {
+    await set(ref(db, "doctors"), buildSeedDoctors());
   }
 }
 
@@ -453,7 +856,7 @@ export async function pushActivity(db = dbInstance, activity) {
   });
 }
 
-/* ─── bed update (optimized: direct update, no read-before-write for instant speed) ─── */
+/* ─── bed update (Manager-enforced lifecycle) ─── */
 
 export async function updateBedRecord(db = dbInstance, bedId, patch, actor) {
   const bedRef = ref(db, `beds/${bedId}`);
@@ -461,8 +864,18 @@ export async function updateBedRecord(db = dbInstance, bedId, patch, actor) {
   if (!snapshot.exists()) throw new Error("Bed record not found.");
 
   const current = snapshot.val();
-  const nextStatus = patch.status || current.status;
+  let nextStatus = patch.status || current.status;
   const now = Date.now();
+  const nextPatientName = String(patch.patientName ?? current.patientName ?? "").trim();
+  const nextReservedFor = String(patch.reservedFor ?? current.reservedFor ?? "").trim();
+  const chosenDoctorId = String(
+    patch.doctorId ?? patch.assignedDoctor ?? patch.reservedDoctorId ?? current.assignedDoctor ?? current.reservedDoctorId ?? "",
+  ).trim();
+
+  // Enforce lifecycle validation for all roles
+  if (nextStatus !== current.status) {
+    validateBedTransition(current.status, nextStatus, actor.role);
+  }
 
   const nextRecord = {
     ...current,
@@ -473,6 +886,7 @@ export async function updateBedRecord(db = dbInstance, bedId, patch, actor) {
     updatedByName: actor.name,
     updatedByRole: actor.role,
   };
+  delete nextRecord.doctorId;
 
   /* Auto-track timestamps for prediction engine */
   if (nextStatus === "occupied" && current.status !== "occupied") {
@@ -482,35 +896,141 @@ export async function updateBedRecord(db = dbInstance, bedId, patch, actor) {
   if (nextStatus === "cleaning" && current.status !== "cleaning") {
     nextRecord.cleaningStartedAt = now;
   }
+  
   if (nextStatus === "available") {
-    nextRecord.patientName = "";
-    nextRecord.assignedDoctor = "";
-    nextRecord.reservedFor = "";
-    nextRecord.conditionCategory = "";
-    nextRecord.admittedAt = 0;
-    nextRecord.cleaningStartedAt = 0;
+    // Check auto-admit from queue
+    const queueSnap = await get(ref(db, "waitingQueue"));
+    const queueRaw = queueSnap.val() || {};
+    const queueItems = Object.entries(queueRaw).map(([id, val]) => ({id, ...val}))
+      .sort((a, b) => {
+        const pA = PRIORITY_ORDER[a.priority] ?? 2;
+        const pB = PRIORITY_ORDER[b.priority] ?? 2;
+        if (pA !== pB) return pA - pB;
+        return (a.waitingSince || 0) - (b.waitingSince || 0);
+      });
+
+    if (queueItems.length > 0) {
+      // Auto-admit the highest-priority patient
+      const nextPatient = queueItems[0];
+      const docSnap = await get(ref(db, "doctors"));
+      const docsObj = docSnap.val() || DOCTOR_REGISTRY;
+      // Smart doctor assignment: prefer same ward as bed
+      const docId = nextPatient.doctorId || pickDoctorForBed(current, docsObj);
+
+      // Override status to occupied
+      nextStatus = "occupied";
+      patch.status = "occupied";
+      nextRecord.status = "occupied";
+
+      nextRecord.patientName = nextPatient.name;
+      nextRecord.assignedDoctor = docId;
+      nextRecord.conditionCategory = nextPatient.condition || "general";
+      nextRecord.notes = nextPatient.notes
+        ? `[Auto-admitted from queue] ${nextPatient.notes}`
+        : "Auto-admitted from waiting queue.";
+      nextRecord.reservedFor = "";
+      nextRecord.reservedDoctorId = "";
+      nextRecord.patientStatus = "";
+      nextRecord.admittedAt = now;
+      nextRecord.cleaningStartedAt = 0;
+      nextRecord.reservationTime = 0;
+
+      // Remove from queue
+      await remove(ref(db, `waitingQueue/${nextPatient.id}`));
+
+      await pushActivity(db, {
+        title: `Auto-admitted to ${bedId}`,
+        copy: `${nextPatient.name} auto-admitted from queue (Priority: ${nextPatient.priority}). Doctor: ${DOCTOR_REGISTRY[docId]?.name || docId}.`,
+        level: "warning",
+      });
+    } else {
+      nextRecord.patientName = "";
+      nextRecord.assignedDoctor = "";
+      nextRecord.reservedFor = "";
+      nextRecord.reservedDoctorId = "";
+      nextRecord.conditionCategory = "";
+      nextRecord.patientStatus = "";
+      nextRecord.admittedAt = 0;
+      nextRecord.cleaningStartedAt = 0;
+      nextRecord.reservationTime = 0;
+    }
   }
   if (nextStatus === "cleaning") {
     nextRecord.patientName = "";
     nextRecord.assignedDoctor = "";
     nextRecord.reservedFor = "";
+    nextRecord.reservedDoctorId = "";
+    nextRecord.conditionCategory = "";
+    nextRecord.patientStatus = "";
+    nextRecord.admittedAt = 0;
+    nextRecord.reservationTime = 0;
   }
   if (nextStatus === "reserved") {
+    const reservedFor = nextReservedFor || nextPatientName;
+    if (!reservedFor) throw new Error("Reserved beds need an incoming patient name.");
+    if (!chosenDoctorId) throw new Error("Reserved beds need a doctor assignment.");
     nextRecord.patientName = "";
     nextRecord.assignedDoctor = "";
+    nextRecord.reservedFor = reservedFor;
+    nextRecord.reservedDoctorId = chosenDoctorId;
+    nextRecord.conditionCategory = "";
+    nextRecord.patientStatus = "";
+    nextRecord.admittedAt = 0;
     nextRecord.cleaningStartedAt = 0;
+    nextRecord.reservationTime = current.reservationTime || now;
   }
   if (nextStatus === "occupied") {
+    const occupiedPatientName = nextPatientName || nextReservedFor;
+    if (!occupiedPatientName) throw new Error("Occupied beds must have a patient name.");
+    if (!chosenDoctorId) throw new Error("Occupied beds must be assigned to a doctor.");
+    const patientChanged = current.status !== "occupied" || current.patientName !== occupiedPatientName;
+    nextRecord.patientName = occupiedPatientName;
+    nextRecord.assignedDoctor = chosenDoctorId;
     nextRecord.reservedFor = "";
+    nextRecord.reservedDoctorId = "";
     nextRecord.cleaningStartedAt = 0;
+    nextRecord.reservationTime = 0;
+    if (patientChanged) {
+      nextRecord.patientStatus = "";
+    }
   }
 
-  /* Direct update — no read-modify-write blocking for multi-doctor support */
   await update(bedRef, nextRecord);
   await pushActivity(db, {
     title: `${bedId} → ${STATUS_META[nextStatus]?.label || nextStatus}`,
-    copy: `${actor.name} updated ${bedId} in ${current.ward}.`,
+    copy: `${actor.name} (${normalizeRole(actor.role)}) updated ${bedId} in ${current.ward}.`,
     level: activityLevelForStatus(nextStatus),
+  });
+}
+
+/* ─── Doctor-specific bed update (only notes + patient status, no bed status change) ─── */
+export async function updatePatientStatus(db = dbInstance, bedId, patch, actor) {
+  if (actor.role !== "doctor") throw new Error("Only doctors can update patient status.");
+  const bedRef = ref(db, `beds/${bedId}`);
+  const snapshot = await get(bedRef);
+  if (!snapshot.exists()) throw new Error("Bed record not found.");
+
+  const current = snapshot.val();
+  // Check this is the doctor's bed
+  if (current.assignedDoctor && current.assignedDoctor !== actor.doctorId) {
+    throw new Error("You can only update your own patients.");
+  }
+
+  const now = Date.now();
+  const nextRecord = {
+    ...current,
+    notes: patch.notes ?? current.notes ?? "",
+    patientStatus: patch.patientStatus || current.patientStatus || "",
+    updatedAt: now,
+    updatedByName: actor.name,
+    updatedByRole: actor.role,
+  };
+
+  await update(bedRef, nextRecord);
+  await pushActivity(db, {
+    title: `Patient status updated — ${bedId}`,
+    copy: `Dr. ${actor.name}: ${patch.patientStatus || "Notes updated"} for ${current.patientName || "patient"}.`,
+    level: "info",
   });
 }
 
@@ -549,7 +1069,7 @@ export function computeBedPrediction(bed) {
     totalReadyMinutes: null,
     totalReadyLabel: "",
     status: bed.status,
-    urgency: "normal", // normal, soon, delayed
+    urgency: "normal",
   };
 
   if (bed.status === "available") {
@@ -576,7 +1096,6 @@ export function computeBedPrediction(bed) {
       ? "Discharge overdue"
       : `Est. discharge: ${isToday ? 'Today' : date.toLocaleDateString("en-IN", { month: "short", day: "numeric" })} ${timeStr}`;
 
-    /* Total ready = discharge + default cleaning */
     prediction.totalReadyMinutes = remainingMin + DEFAULT_CLEANING_MINUTES;
     prediction.totalReadyLabel = `Bed available in ${formatDuration(remainingMin + DEFAULT_CLEANING_MINUTES)}`;
 
@@ -626,7 +1145,6 @@ export function computeAllPredictions(beds = {}) {
 /* ─── 🚨 Emergency Mode: rank beds by readiness ─── */
 
 export function getEmergencyRanking(beds = {}) {
-  const now = Date.now();
   const ranked = Object.values(beds).map((bed) => {
     const pred = computeBedPrediction(bed);
     let readyMinutes = pred.totalReadyMinutes ?? Infinity;
@@ -645,7 +1163,7 @@ export function getEmergencyRanking(beds = {}) {
       label = `🛏️ ${pred.vacancyLabel}`;
       icon = "occupied";
     } else if (bed.status === "reserved") {
-      readyMinutes = 5; /* Can be reassigned quickly */
+      readyMinutes = 5;
       label = "📌 Reserved (can be reassigned)";
       icon = "reserved";
       canReassign = true;
@@ -664,7 +1182,7 @@ export function getEmergencyRanking(beds = {}) {
   return ranked.sort((a, b) => a.readyMinutes - b.readyMinutes);
 }
 
-/* ─── Smart suggestions ─── */
+/* ─── Smart suggestions (visible to all roles) ─── */
 
 export function getSmartSuggestions(beds = {}) {
   const all = Object.values(beds);
@@ -700,11 +1218,28 @@ export function computeWaitingAlerts(queue = []) {
   });
 }
 
-/* ─── 🚨 Enhanced Alert System (with escalation flags) ─── */
+/* ─── 🚨 Enhanced Alert System (System-generated) ─── */
 
-export function computeAlerts(beds = {}, waitingQueue = []) {
+export function computeAlerts(beds = {}, waitingQueue = [], managerAlerts = []) {
   const alerts = [];
   const now = Date.now();
+
+  /* Manager-added alerts (medicine, urgent help, etc.) */
+  managerAlerts.forEach((alert) => {
+    alerts.push({
+      type: alert.type === "urgent" ? "critical" : "warning",
+      title: alert.title,
+      copy: alert.copy,
+      time: alert.createdAt,
+      flag: alert.type === "urgent" ? "URGENT" : "MEDICINE",
+      managerId: alert.id,
+      sourceType: alert.type,
+      doctorId: alert.doctorId || "",
+      bedId: alert.bedId || "",
+      patientName: alert.patientName || "",
+      resolvable: alert.type !== "medicine",
+    });
+  });
 
   /* Ward occupancy alerts */
   computeWardStats(beds).forEach((ward) => {
@@ -730,7 +1265,6 @@ export function computeAlerts(beds = {}, waitingQueue = []) {
   Object.values(beds).forEach((bed) => {
     const ageMin = Math.round((now - (bed.updatedAt || now)) / 60000);
 
-    /* Cleaning > 30 min */
     if (bed.status === "cleaning") {
       const cleaningAge = bed.cleaningStartedAt
         ? Math.round((now - bed.cleaningStartedAt) / 60000)
@@ -741,12 +1275,14 @@ export function computeAlerts(beds = {}, waitingQueue = []) {
           title: `🧹 ${bed.id}: Cleaning > ${cleaningAge} min`,
           copy: `${bed.ward} — cleaning exceeds target. Escalate to housekeeping.`,
           time: bed.cleaningStartedAt || bed.updatedAt,
-          flag: "ESCALATION",
+          flag: "CLEANING DELAY",
+          doctorId: bed.assignedDoctor || bed.reservedDoctorId || "",
+          bedId: bed.id,
+          patientName: bed.patientName || bed.reservedFor || "",
         });
       }
     }
 
-    /* Discharge delay > 2 hours */
     if (bed.status === "occupied" && bed.admittedAt) {
       const pred = computeBedPrediction(bed);
       if (pred.vacancyMinutes !== null && pred.vacancyMinutes <= 0) {
@@ -758,18 +1294,24 @@ export function computeAlerts(beds = {}, waitingQueue = []) {
             copy: `${bed.ward} — patient overstaying by ${formatDuration(overdueMin)}. Review discharge.`,
             time: bed.admittedAt,
             flag: "ESCALATION",
+            doctorId: bed.assignedDoctor || "",
+            bedId: bed.id,
+            patientName: bed.patientName || "",
           });
         }
       }
     }
 
-    /* Reserved bed waiting > 60 min */
     if (bed.status === "reserved" && ageMin >= 60) {
       alerts.push({
         type: "info",
         title: `📌 ${bed.id}: Reserved for ${ageMin} min`,
         copy: `${bed.reservedFor || "Incoming patient"} has been waiting in ${bed.ward}.`,
         time: bed.updatedAt,
+        flag: "BED RESERVED",
+        doctorId: bed.reservedDoctorId || "",
+        bedId: bed.id,
+        patientName: bed.reservedFor || "",
       });
     }
   });
@@ -780,11 +1322,13 @@ export function computeAlerts(beds = {}, waitingQueue = []) {
       const waitMin = Math.round((now - (patient.waitingSince || now)) / 60000);
       if (waitMin >= 30) {
         alerts.push({
-          type: "critical",
+          type: patient.priority === "emergency" ? "critical" : "warning",
           title: `⏳ ${patient.name}: Waiting ${waitMin} min`,
-          copy: `Patient in queue over 30 min. Condition: ${cap(patient.condition || "general")}.`,
+          copy: `Patient in queue over 30 min. Priority: ${cap(patient.priority || "normal")}.`,
           time: patient.waitingSince,
-          flag: "ESCALATION",
+          flag: patient.priority === "emergency" ? "EMERGENCY" : "WAIT EXCEEDED",
+          doctorId: patient.doctorId || "",
+          patientName: patient.name || "",
         });
       }
     });
@@ -799,7 +1343,7 @@ export function computeAlerts(beds = {}, waitingQueue = []) {
 
 /* ─── rendering helpers ─── */
 
-export function renderAlertStrips(alerts = []) {
+export function renderAlertStrips(alerts = [], canResolve = false) {
   if (!alerts.length) {
     return `<div class="empty-state">No active alerts. Real-time updates will appear here.</div>`;
   }
@@ -812,6 +1356,7 @@ export function renderAlertStrips(alerts = []) {
             <div class="alert-badges">
               ${alert.flag ? `<span class="escalation-flag">${escapeHtml(alert.flag)}</span>` : ""}
               <span class="status-chip ${escapeHtml(alert.type)}">${escapeHtml(cap(alert.type))}</span>
+              ${canResolve && alert.managerId ? `<button class="btn btn-ghost btn-sm resolve-alert" data-id="${escapeHtml(alert.managerId)}">✓ Resolve</button>` : ""}
             </div>
           </div>
           <p class="item-copy">${escapeHtml(alert.copy)}</p>
@@ -828,7 +1373,7 @@ export function renderActivityItems(items = []) {
   }
   return `
     <div class="activity-list">
-      ${items.slice(0, 12).map((item) => `
+      ${items.slice(0, 15).map((item) => `
         <article class="activity-item">
           <div>
             <h4 class="item-title">${escapeHtml(item.title || "Activity")}</h4>
@@ -841,21 +1386,29 @@ export function renderActivityItems(items = []) {
   `;
 }
 
-export function renderWaitingQueue(queue = []) {
+export function renderWaitingQueue(queue = [], canManage = false) {
   const now = Date.now();
   if (!queue.length) {
-    return `<div class="empty-state">No patients in queue. Add patients from the toolbar.</div>`;
+    return `<div class="empty-state">No patients in queue.</div>`;
   }
+  const priorityClass = { emergency: "priority-emergency", urgent: "priority-urgent", normal: "priority-normal" };
+  const priorityLabel = { emergency: "🔴 Emergency", urgent: "🟡 Urgent", normal: "🟢 Normal" };
+
   return `
     <div class="waiting-list">
       ${queue.map((p) => {
         const waitMin = Math.round((now - (p.waitingSince || now)) / 60000);
         const isAlert = waitMin >= 30;
+        const pClass = priorityClass[p.priority] || "priority-normal";
+        const pLabel = priorityLabel[p.priority] || "🟢 Normal";
+        const doctorName = getDoctorName(p.doctorId);
         return `
           <article class="waiting-item ${isAlert ? "waiting-alert" : ""}">
             <div class="waiting-info">
               <strong>${escapeHtml(p.name)}</strong>
+              <span class="priority-badge ${pClass}">${pLabel}</span>
               <span class="waiting-condition">${escapeHtml(cap(p.condition || "general"))}</span>
+              ${p.doctorId ? `<span class="doctor-id-chip">🩺 ${escapeHtml(p.doctorId)} — ${escapeHtml(doctorName)}</span>` : ""}
               ${p.notes ? `<span class="waiting-notes">${escapeHtml(p.notes)}</span>` : ""}
             </div>
             <div class="waiting-timer-wrap">
@@ -864,7 +1417,7 @@ export function renderWaitingQueue(queue = []) {
               </span>
               ${isAlert ? `<span class="waiting-alert-badge">⚠️ ALERT</span>` : ""}
             </div>
-            <button class="btn btn-ghost btn-sm remove-waiting" type="button" data-id="${escapeHtml(p.id)}">✕</button>
+            ${canManage ? `<button class="btn btn-ghost btn-sm remove-waiting" type="button" data-id="${escapeHtml(p.id)}">✕</button>` : ""}
           </article>
         `;
       }).join("")}
@@ -879,8 +1432,8 @@ export function renderEmergencyPanel(beds = {}, waitingQueue = []) {
 
   const criticalQueue = waitingQueue.filter((p) => {
     const waitMin = Math.round((now - (p.waitingSince || now)) / 60000);
-    return waitMin >= 30 || p.condition === "emergency" || p.condition === "icu";
-  }).sort((a, b) => (a.waitingSince || 0) - (b.waitingSince || 0));
+    return waitMin >= 30 || p.condition === "emergency" || p.condition === "icu" || p.priority === "emergency";
+  }).sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 2) - (PRIORITY_ORDER[b.priority] ?? 2));
 
   const criticalHtml = criticalQueue.length ? `
     <div class="emergency-critical-section" style="margin-bottom: 24px;">
@@ -893,6 +1446,7 @@ export function renderEmergencyPanel(beds = {}, waitingQueue = []) {
           <article class="waiting-item waiting-alert" style="padding: 12px 16px;">
             <div class="waiting-info">
               <strong>${escapeHtml(p.name)}</strong>
+              <span class="priority-badge priority-${escapeHtml(p.priority || "normal")}">${escapeHtml(cap(p.priority || "normal"))}</span>
               <span class="waiting-condition">${escapeHtml(cap(p.condition))} — ${escapeHtml(p.notes || "No notes")}</span>
             </div>
             <div class="waiting-timer-wrap">
@@ -938,7 +1492,7 @@ export function renderPredictionSummary(beds = {}) {
       <div class="pred-section">
         <h4 class="pred-heading">✅ Available Now (${suggestions.fastest.length})</h4>
         <div class="pred-chips">
-          ${suggestions.fastest.slice(0, 4).map((b) => `
+          ${suggestions.fastest.slice(0, 6).map((b) => `
             <span class="pred-chip available">${escapeHtml(b.id)} · ${escapeHtml(b.ward)}</span>
           `).join("")}
         </div>
@@ -962,7 +1516,7 @@ export function renderPredictionSummary(beds = {}) {
   if (suggestions.causingDelay.length) {
     parts.push(`
       <div class="pred-section">
-        <h4 class="pred-heading">🔴 Causing Delay</h4>
+        <h4 class="pred-heading">🔴 Cleaning Overdue</h4>
         <div class="pred-chips">
           ${suggestions.causingDelay.slice(0, 4).map((s) => `
             <span class="pred-chip delay">${escapeHtml(s.bed.id)} → ${escapeHtml(s.label)}</span>
@@ -978,11 +1532,33 @@ export function renderPredictionSummary(beds = {}) {
   return parts.join("");
 }
 
+export function renderDoctorList(doctors = {}) {
+  const list = Object.values(doctors);
+  if (!list.length) {
+    return `<div class="empty-state">No doctors registered yet.</div>`;
+  }
+  return `
+    <div class="doctor-list">
+      ${list.map((doc) => `
+        <article class="doctor-card">
+          <div class="doctor-card-avatar">${escapeHtml((doc.name || "DR").replace(/^Dr\.?\s+/i, "").charAt(0).toUpperCase())}</div>
+          <div class="doctor-card-info">
+            <strong>${escapeHtml(doc.name)}</strong>
+            <span class="doctor-id-chip">${escapeHtml(doc.doctorId)}</span>
+            <span class="doctor-spec">${escapeHtml(doc.specialization)}</span>
+            <span class="doctor-ward">${escapeHtml(doc.ward)}</span>
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
 export function statusMeta(status) {
   return STATUS_META[status] || STATUS_META.available;
 }
 
-/* ─── Enhanced bed card with inline predictions ─── */
+/* ─── Enhanced bed card ─── */
 
 export function buildBedCard(bed, interactive = true) {
   const meta = statusMeta(bed.status);
@@ -996,11 +1572,14 @@ export function buildBedCard(bed, interactive = true) {
 
   const details = [];
   if (bed.patientName) details.push(`<span class="pill">👤 ${escapeHtml(bed.patientName)}</span>`);
-  if (bed.assignedDoctor) details.push(`<span class="pill">🩺 ${escapeHtml(bed.assignedDoctor)}</span>`);
+  if (bed.assignedDoctor) {
+    const docName = getDoctorName(bed.assignedDoctor);
+    details.push(`<span class="pill doctor-id-chip">🩺 ${escapeHtml(bed.assignedDoctor)} — ${escapeHtml(docName)}</span>`);
+  }
   if (bed.reservedFor) details.push(`<span class="pill">📌 ${escapeHtml(bed.reservedFor)}</span>`);
+  if (bed.reservedDoctorId) details.push(`<span class="pill doctor-id-chip">🩺 Reserved: ${escapeHtml(bed.reservedDoctorId)}</span>`);
   if (bed.conditionCategory) details.push(`<span class="pill condition">${escapeHtml(cap(bed.conditionCategory))}</span>`);
 
-  /* Prediction line */
   let predLine = "";
   if (bed.status === "occupied" && pred.vacancyLabel) {
     predLine = `<div class="bed-prediction ${pred.urgency}">${escapeHtml(pred.vacancyLabel)}</div>`;
@@ -1009,10 +1588,9 @@ export function buildBedCard(bed, interactive = true) {
   } else if (bed.status === "available") {
     predLine = `<div class="bed-prediction ready">✅ Ready now</div>`;
   } else if (bed.status === "reserved") {
-    predLine = `<div class="bed-prediction reserved">📌 Can be reassigned</div>`;
+    predLine = `<div class="bed-prediction reserved">📌 Reserved — awaiting patient</div>`;
   }
 
-  /* Ready time line */
   let readyLine = "";
   if (bed.status !== "available" && pred.totalReadyMinutes !== null && pred.totalReadyMinutes !== Infinity) {
     readyLine = `<div class="bed-ready-time">🎯 ${escapeHtml(pred.totalReadyLabel)}</div>`;
@@ -1040,7 +1618,8 @@ export function buildBedCard(bed, interactive = true) {
 
 export function buildTopbar(name, role) {
   setText("uName", name);
-  setText("roleBadge", cap(role));
+  const roleLabel = cap(normalizeRole(role));
+  setText("roleBadge", roleLabel);
   setText("uAvatar", (name || "U").trim().charAt(0).toUpperCase());
 }
 
@@ -1055,7 +1634,8 @@ export function populateWardFilter(selectId, wards = []) {
   select.value = wards.includes(currentValue) || currentValue === "all" ? currentValue : "all";
 }
 
-export function statusOptions(selected = "available") {
+export function statusOptionsForManager(selected = "available") {
+  // Full lifecycle options for manager
   return Object.entries(STATUS_META)
     .map(([value, meta]) =>
       `<option value="${value}"${value === selected ? " selected" : ""}>${escapeHtml(meta.label)}</option>`,
@@ -1063,11 +1643,25 @@ export function statusOptions(selected = "available") {
     .join("");
 }
 
+export function statusOptions(selected = "available") {
+  return statusOptionsForManager(selected);
+}
+
 export function conditionCategoryOptions(selected = "") {
   const opts = [
     `<option value="">— None —</option>`,
     ...CONDITION_CATEGORIES.map((cat) =>
       `<option value="${cat}"${cat === selected ? " selected" : ""}>${escapeHtml(cap(cat))}</option>`
+    ),
+  ];
+  return opts.join("");
+}
+
+export function doctorIdOptions(selected = "") {
+  const opts = [
+    `<option value="">— Select Doctor ID —</option>`,
+    ...Object.entries(DOCTOR_REGISTRY).map(([id, doc]) =>
+      `<option value="${id}"${id === selected ? " selected" : ""}>${escapeHtml(id)} — ${escapeHtml(doc.name)}</option>`
     ),
   ];
   return opts.join("");

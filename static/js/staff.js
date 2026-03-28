@@ -8,13 +8,10 @@ import {
   getSortedBeds,
   getWardNames,
   initFirebase,
-  listenActivity,
   listenBeds,
   listenWaitingQueue,
   logout,
   populateWardFilter,
-  removeFromWaitingQueue,
-  renderActivityItems,
   renderAlertStrips,
   renderFatalState,
   renderWaitingQueue,
@@ -30,7 +27,6 @@ import {
 const state = {
   user: null,
   beds: {},
-  activity: [],
   waitingQueue: [],
   ward: "all",
   search: "",
@@ -106,23 +102,11 @@ function renderAlerts() {
   setHtml("staffAlerts", renderAlertStrips(computeAlerts(state.beds, state.waitingQueue).slice(0, 6)));
 }
 
-function renderActivity() {
-  setHtml("staffActivity", renderActivityItems(state.activity));
+function renderWaiting() {
+  // Staff can view queue but cannot remove patients (manager-only action)
+  setHtml("staffWaitingQueue", renderWaitingQueue(state.waitingQueue, false));
 }
 
-function renderWaiting() {
-  setHtml("staffWaitingQueue", renderWaitingQueue(state.waitingQueue));
-  document.querySelectorAll(".remove-waiting").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      try {
-        await removeFromWaitingQueue(undefined, btn.dataset.id);
-        showToast("Patient removed from queue.", "ok");
-      } catch (e) {
-        showToast(e.message, "err");
-      }
-    });
-  });
-}
 
 function render() {
   populateWardFilter("staffWardFilter", getWardNames(state.beds));
@@ -130,7 +114,9 @@ function render() {
   renderQueues();
   renderBeds();
   renderAlerts();
+  renderWaiting();
 }
+
 
 /* ─── Editor ─── */
 
@@ -177,6 +163,9 @@ function wireAddWaiting(db) {
     const name = String(fd.get("name") || "").trim();
     if (!name) { showToast("Patient name is required.", "err"); return; }
 
+    const btn = form.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Adding...';
     try {
       await addToWaitingQueue(db, {
         name,
@@ -188,9 +177,13 @@ function wireAddWaiting(db) {
       showToast("Patient added to waiting queue.", "ok");
     } catch (err) {
       showToast(err.message, "err");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Add to queue";
     }
   });
 }
+
 
 function wireFilters() {
   document.getElementById("staffWardFilter").addEventListener("change", (e) => {
@@ -244,6 +237,56 @@ function wireForm(db) {
   });
 }
 
+function buildLocalHandoverReport() {
+  const stats = computeStats(state.beds, { ward: state.ward });
+  const alerts = computeAlerts(state.beds, state.waitingQueue).slice(0, 4);
+  const cleaningBeds = getSortedBeds(state.beds, { ward: state.ward }).filter((bed) => bed.status === "cleaning");
+  const readyBeds = getSortedBeds(state.beds, { ward: state.ward }).filter((bed) => bed.status === "available");
+  const queueSummary = state.waitingQueue.slice(0, 4);
+
+  return `
+    <div class="handover-report">
+      <h3>Shift Handover Summary</h3>
+      <p><strong>Ready beds:</strong> ${stats.available} · <strong>Cleaning:</strong> ${stats.cleaning} · <strong>Reserved:</strong> ${stats.reserved} · <strong>Occupied:</strong> ${stats.occupied}</p>
+      <p><strong>Waiting queue:</strong> ${state.waitingQueue.length} patient(s)</p>
+      <hr />
+      <p><strong>Cleaning focus:</strong> ${cleaningBeds.length ? cleaningBeds.map((bed) => bed.id).join(", ") : "No beds pending cleaning."}</p>
+      <p><strong>Ready for admission:</strong> ${readyBeds.length ? readyBeds.map((bed) => bed.id).join(", ") : "No beds immediately ready."}</p>
+      <p><strong>Priority queue:</strong> ${queueSummary.length ? queueSummary.map((patient) => `${patient.name} (${patient.priority || "normal"})`).join(", ") : "Queue is clear."}</p>
+      <p><strong>Escalations:</strong> ${alerts.length ? alerts.map((alert) => alert.title).join(" | ") : "No urgent escalations right now."}</p>
+    </div>
+  `;
+}
+
+function wireHandover() {
+  const genBtn = document.getElementById("staffGenerateHandover");
+  const printBtn = document.getElementById("staffPrintHandover");
+  const content = document.getElementById("staffHandoverContent");
+
+  genBtn.addEventListener("click", async () => {
+    genBtn.disabled = true;
+    genBtn.innerHTML = '<span class="spinner" aria-hidden="true"></span>';
+    content.innerHTML = '<div class="empty-state">Brainstorming shift summary...</div>';
+    
+    try {
+      content.classList.remove("empty-state");
+      content.innerHTML = buildLocalHandoverReport();
+      printBtn.classList.remove("hidden");
+    } catch (error) {
+      console.error(error);
+      showToast("Could not generate report.", "err");
+      content.innerHTML = '<div class="empty-state" style="color:var(--red);">Failed to generate the shift summary.</div>';
+    } finally {
+      genBtn.disabled = false;
+      genBtn.textContent = "Regenerate";
+    }
+  });
+
+  printBtn.addEventListener("click", () => {
+    window.print();
+  });
+}
+
 function refreshHeader() {
   const now = new Date();
   setText("staffGreeting", `${state.user.name}'s Operations Board`);
@@ -279,17 +322,16 @@ async function initPage() {
   }
 
   wireDrawer();
+  wireAddWaiting(db);
   wireFilters();
   wireForm(db);
-  wireAddWaiting(db);
+  wireHandover();
   document.getElementById("logoutButton").addEventListener("click", logout);
 
   requireAuth(
     async (session) => {
       state.user = session;
-      /* Replace history so back-button can't reach login */
       window.history.replaceState(null, "", window.location.href);
-      /* Block trackpad swipe-back gesture */
       window.history.pushState(null, "", window.location.href);
       window.addEventListener("popstate", () => {
         window.history.pushState(null, "", window.location.href);
@@ -303,11 +345,6 @@ async function initPage() {
         render();
       });
 
-      listenActivity(db, (activity) => {
-        state.activity = activity;
-        renderActivity();
-      });
-
       listenWaitingQueue(db, (queue) => {
         state.waitingQueue = queue;
         renderWaiting();
@@ -317,7 +354,7 @@ async function initPage() {
       window.setInterval(updateTimers, 1000);
       window.setInterval(refreshHeader, 30000);
     },
-    { allowRoles: ["staff"] },
+    { allowRoles: ["manager"] },
   );
 }
 

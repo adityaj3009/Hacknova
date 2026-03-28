@@ -543,7 +543,29 @@ img {
   flex-direction: column;
 }
 
-/* ─── Topbar ─── */
+/* ─── Role Notice (Doctor view) ─── */
+
+.role-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--blue-soft);
+  border: 1px solid rgba(21, 112, 239, 0.16);
+  color: var(--blue);
+  font-size: 0.86rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.field-readonly {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* ─── responsive ─── */
 
 .topbar {
   position: sticky;
@@ -715,6 +737,10 @@ img {
 
 .stat-grid-5 {
   grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.stat-grid-6 {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 .stat-card {
@@ -1670,5 +1696,456 @@ img {
     flex-direction: row;
     align-items: center;
     gap: 8px;
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   DOCTOR ID SYSTEM
+   ═══════════════════════════════════════════════════ */
+
+.doctor-id-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+  padding: 14px 18px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  position: relative;
+  z-index: 1;
+}
+
+.doctor-id-label {
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.8;
+}
+
+.doctor-id-chip-lg {
+  padding: 6px 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 800;
+  font-family: var(--mono);
+  letter-spacing: 0.06em;
+}
+
+.doctor-spec-sm {
+  font-size: 0.86rem;
+  opacity: 0.76;
+}
+
+.doctor-id-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-size: 0.72rem;
+  font-weight: 800;
+  font-family: var(--mono);
+  letter-spacing: 0.04em;
+  border: 1px solid rgba(21, 112, 239, 0.14);
+}
+
+/* ═══════════════════════════════════════════════════
+   PRIORITY BADGES
+   ═══════════════════════════════════════════════════ */
+
+.priority-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.priority-emergency {
+  background: var(--red-soft);
+  color: var(--red);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  animation: blink-alert 1.5s ease-in-out infinite;
+}
+
+.priority-urgent {
+  background: var(--amber-soft);
+  color: var(--amber);
+  border: 1px solid rgba(217, 119, 6, 0.2);
+}
+
+.priority-normal {
+  background: var(--green-soft);
+  color: var(--green);
+  border: 1px solid rgba(15, 159, 110, 0.18);
+}
+
+/* ═══════════════════════════════════════════════════
+   SUGGESTION BANNER
+   ═══════════════════════════════════════════════════ */
+
+@keyframes suggestion-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(15, 159, 110, 0.4); }
+  50% { box-shadow: 0 0 0 10px rgba(15, 159, 110, 0); }
+}
+
+.suggestion-banner {
+  margin-top: 18px;
+  padding: 16px 20px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf9 100%);
+  border: 2px solid rgba(15, 159, 110, 0.3);
+  box-shadow: 0 8px 24px rgba(15, 159, 110, 0.12);
+  animation: slide-up 0.3s ease, suggestion-pulse 2s ease-in-out infinite;
+}
+
+.suggestion-inner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.suggestion-inner strong {
+  display: block;
+  color: var(--green);
+  font-size: 0.96rem;
+}
+
+.suggestion-inner p {
+  margin: 4px 0 0;
+  font-size: 0.88rem;
+  color: var(--text-soft);
+}
+
+.suggestion-pulse {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--green);
+  animation: pulse-dot 1s ease-in-out infinite;
+}
+
+/* ═══════════════════════════════════════════════════
+   ANALYTICS GRID
+   ═══════════════════════════════════════════════════ */
+
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.analytics-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 18px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  transition: transform var(--ease), box-shadow var(--ease);
+  animation: fade-in 0.25s ease;
+}
+
+.analytics-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+
+.analytics-card.analytics-warning {
+  background: var(--red-soft);
+  border-color: rgba(220, 38, 38, 0.18);
+}
+
+.analytics-icon {
+  font-size: 1.8rem;
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.analytics-info strong {
+  display: block;
+  font-size: 1.6rem;
+  font-family: var(--mono);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: var(--text);
+}
+
+.analytics-info span {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-soft);
+}
+
+/* ═══════════════════════════════════════════════════
+   MEDICINE ALERT
+   ═══════════════════════════════════════════════════ */
+
+.medicine-alert-item {
+  background: linear-gradient(90deg, #ecfdf5, #f0fdf9) !important;
+  border-color: rgba(15, 159, 110, 0.2) !important;
+}
+
+/* ═══════════════════════════════════════════════════
+   DOCTOR REGISTRY (Admin)
+   ═══════════════════════════════════════════════════ */
+
+.doctor-list {
+  display: grid;
+  gap: 10px;
+}
+
+.doctor-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  transition: transform var(--ease);
+  animation: fade-in 0.22s ease;
+}
+
+.doctor-card:hover {
+  transform: translateX(3px);
+}
+
+.doctor-card-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #1570ef, #0891b2);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.doctor-card-info {
+  display: grid;
+  gap: 3px;
+}
+
+.doctor-card-info strong {
+  font-size: 0.96rem;
+  font-weight: 800;
+}
+
+.doctor-spec {
+  font-size: 0.82rem;
+  color: var(--text-soft);
+  font-weight: 700;
+}
+
+.doctor-ward {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* ═══════════════════════════════════════════════════
+   RESERVED ITEM
+   ═══════════════════════════════════════════════════ */
+
+.reserved-item {
+  background: linear-gradient(90deg, #f7f3ff, #faf5ff) !important;
+  border-color: rgba(109, 40, 217, 0.18) !important;
+}
+
+/* ═══════════════════════════════════════════════════
+   DOCTOR ID REFERENCE (Signup)
+   ═══════════════════════════════════════════════════ */
+
+.doctor-id-reference {
+  padding: 18px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  margin-top: 8px;
+}
+
+.doctor-id-reference h4 {
+  margin: 0 0 12px;
+  font-size: 0.86rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.8;
+}
+
+.doctor-id-grid {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.doctor-id-ref-item {
+  font-size: 0.8rem;
+  color: rgba(244, 251, 255, 0.82);
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.doctor-id-ref-item strong {
+  color: rgba(144, 222, 255, 0.95);
+  font-family: var(--mono);
+  margin-right: 4px;
+}
+
+/* ═══════════════════════════════════════════════════
+   RESPONSIVE UPDATES
+   ═══════════════════════════════════════════════════ */
+
+@media (max-width: 1080px) {
+  .auth-shell,
+  .page-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .feature-grid,
+  .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stat-grid-5,
+  .stat-grid-6 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .emergency-bed-item {
+    grid-template-columns: 36px 1fr auto;
+  }
+
+  .analytics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .content {
+    width: min(100% - 20px, 1280px);
+    margin-top: 18px;
+  }
+
+  .hero-pane {
+    padding-bottom: 30px;
+  }
+
+  .topbar,
+  .topbar-left,
+  .topbar-right {
+    align-items: flex-start;
+  }
+
+  .topbar {
+    flex-direction: column;
+  }
+
+  .field-row,
+  .feature-grid,
+  .stat-grid,
+  .stat-grid-5,
+  .stat-grid-6,
+  .panel-grid,
+  .doctor-id-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bed-grid {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  }
+
+  .overlay {
+    padding: 12px;
+  }
+
+  .emergency-bed-item {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .emergency-rank {
+    display: none;
+  }
+
+  .emergency-label {
+    font-size: 0.8rem;
+  }
+
+  .emergency-time {
+    text-align: left;
+  }
+
+  .btn-emergency {
+    width: 100%;
+  }
+
+  .analytics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .suggestion-inner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 520px) {
+  .auth-pane {
+    padding: 16px;
+  }
+
+  .auth-panel,
+  .card,
+  .hero-card,
+  .drawer {
+    border-radius: 22px;
+  }
+
+  .button-row {
+    flex-direction: column;
+  }
+
+  .btn {
+    width: 100%;
+  }
+
+  .queue-item,
+  .waiting-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .waiting-timer-wrap {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .analytics-grid {
+    grid-template-columns: 1fr;
   }
 }
