@@ -4,13 +4,14 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask, redirect, render_template, send_from_directory, url_for
+from flask import Flask, redirect, render_template, request, send_from_directory, url_for
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env", override=True)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.secret_key = os.getenv("SECRET_KEY", "wardwatch-secret")
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
 FIREBASE_CONFIG = {
     "apiKey": os.getenv("FIREBASE_API_KEY"),
@@ -22,6 +23,27 @@ FIREBASE_CONFIG = {
     "measurementId": os.getenv("FIREBASE_MEASUREMENT_ID"),
     "databaseURL": os.getenv("FIREBASE_DATABASE_URL"),
 }
+
+
+@app.url_defaults
+def add_static_asset_version(endpoint, values):
+    """Append a file mtime version to static asset URLs to avoid stale browser caches."""
+    if endpoint != "static" or "filename" not in values or "v" in values:
+        return
+
+    asset_path = BASE_DIR / "static" / values["filename"]
+    if asset_path.exists():
+        values["v"] = int(asset_path.stat().st_mtime)
+
+
+@app.after_request
+def add_no_cache_headers(response):
+    """Keep dashboards and static assets fresh for realtime behavior."""
+    if request.path.startswith("/static/") or response.mimetype == "text/html":
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
 
 
 @app.route("/")
