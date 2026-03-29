@@ -894,7 +894,8 @@ export async function updateBedRecord(db = dbInstance, bedId, patch, actor) {
   if (!snapshot.exists()) throw new Error("Bed record not found.");
 
   const current = snapshot.val();
-  let nextStatus = patch.status || current.status;
+  const requestedStatus = patch.status || current.status;
+  let nextStatus = requestedStatus;
   const now = Date.now();
   const nextPatientName = String(patch.patientName ?? current.patientName ?? "").trim();
   const nextReservedFor = String(patch.reservedFor ?? current.reservedFor ?? "").trim();
@@ -946,33 +947,36 @@ export async function updateBedRecord(db = dbInstance, bedId, patch, actor) {
       const docsObj = docSnap.val() || DOCTOR_REGISTRY;
       // Smart doctor assignment: prefer same ward as bed
       const docId = nextPatient.doctorId || pickDoctorForBed(current, docsObj);
+      const queuedPatientName = String(nextPatient.name || "").trim();
 
-      // Override status to occupied
-      nextStatus = "occupied";
-      patch.status = "occupied";
-      nextRecord.status = "occupied";
+      if (queuedPatientName && docId) {
+        // Override status to occupied
+        nextStatus = "occupied";
+        patch.status = "occupied";
+        nextRecord.status = "occupied";
 
-      nextRecord.patientName = nextPatient.name;
-      nextRecord.assignedDoctor = docId;
-      nextRecord.conditionCategory = nextPatient.condition || "general";
-      nextRecord.notes = nextPatient.notes
-        ? `[Auto-admitted from queue] ${nextPatient.notes}`
-        : "Auto-admitted from waiting queue.";
-      nextRecord.reservedFor = "";
-      nextRecord.reservedDoctorId = "";
-      nextRecord.patientStatus = "";
-      nextRecord.admittedAt = now;
-      nextRecord.cleaningStartedAt = 0;
-      nextRecord.reservationTime = 0;
+        nextRecord.patientName = queuedPatientName;
+        nextRecord.assignedDoctor = docId;
+        nextRecord.conditionCategory = nextPatient.condition || "general";
+        nextRecord.notes = nextPatient.notes
+          ? `[Auto-admitted from queue] ${nextPatient.notes}`
+          : "Auto-admitted from waiting queue.";
+        nextRecord.reservedFor = "";
+        nextRecord.reservedDoctorId = "";
+        nextRecord.patientStatus = "";
+        nextRecord.admittedAt = now;
+        nextRecord.cleaningStartedAt = 0;
+        nextRecord.reservationTime = 0;
 
-      // Remove from queue
-      await remove(ref(db, `waitingQueue/${nextPatient.id}`));
+        // Remove from queue
+        await remove(ref(db, `waitingQueue/${nextPatient.id}`));
 
-      await pushActivity(db, {
-        title: `Auto-admitted to ${bedId}`,
-        copy: `${nextPatient.name} auto-admitted from queue (Priority: ${nextPatient.priority}). Doctor: ${DOCTOR_REGISTRY[docId]?.name || docId}.`,
-        level: "warning",
-      });
+        await pushActivity(db, {
+          title: `Auto-admitted to ${bedId}`,
+          copy: `${queuedPatientName} auto-admitted from queue (Priority: ${nextPatient.priority}). Doctor: ${DOCTOR_REGISTRY[docId]?.name || docId}.`,
+          level: "warning",
+        });
+      }
     } else {
       nextRecord.patientName = "";
       nextRecord.assignedDoctor = "";
@@ -1012,8 +1016,33 @@ export async function updateBedRecord(db = dbInstance, bedId, patch, actor) {
   if (nextStatus === "occupied") {
     const occupiedPatientName = String(nextRecord.patientName || nextPatientName || nextReservedFor || "").trim();
     const occupiedDoctorId = String(nextRecord.assignedDoctor || chosenDoctorId || "").trim();
-    if (!occupiedPatientName) throw new Error("Occupied beds must have a patient name.");
-    if (!occupiedDoctorId) throw new Error("Occupied beds must be assigned to a doctor.");
+    if (!occupiedPatientName || !occupiedDoctorId) {
+      if (requestedStatus === "available") {
+        nextStatus = "available";
+        nextRecord.status = "available";
+        nextRecord.patientName = "";
+        nextRecord.assignedDoctor = "";
+        nextRecord.reservedFor = "";
+        nextRecord.reservedDoctorId = "";
+        nextRecord.conditionCategory = "";
+        nextRecord.patientStatus = "";
+        nextRecord.admittedAt = 0;
+        nextRecord.cleaningStartedAt = 0;
+        nextRecord.reservationTime = 0;
+      } else {
+        if (!occupiedPatientName) throw new Error("Occupied beds must have a patient name.");
+        throw new Error("Occupied beds must be assigned to a doctor.");
+      }
+    }
+    if (nextStatus !== "occupied") {
+      await update(bedRef, nextRecord);
+      await pushActivity(db, {
+        title: `${bedId} â†’ ${STATUS_META[nextStatus]?.label || nextStatus}`,
+        copy: `${actor.name} (${normalizeRole(actor.role)}) updated ${bedId} in ${current.ward}.`,
+        level: activityLevelForStatus(nextStatus),
+      });
+      return;
+    }
     const patientChanged = current.status !== "occupied" || current.patientName !== occupiedPatientName;
     nextRecord.patientName = occupiedPatientName;
     nextRecord.assignedDoctor = occupiedDoctorId;
