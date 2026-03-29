@@ -493,6 +493,34 @@ export async function removeFromWaitingQueue(db = dbInstance, patientId) {
   return remove(ref(db, `waitingQueue/${patientId}`));
 }
 
+async function removeMatchedWaitingPatient(db = dbInstance, patientName, doctorId = "") {
+  const normalizedName = String(patientName || "").trim().toLowerCase();
+  if (!normalizedName) return null;
+
+  const snapshot = await get(ref(db, "waitingQueue"));
+  const raw = snapshot.val() || {};
+  const items = Object.entries(raw)
+    .map(([id, value]) => ({ id, ...value }))
+    .sort((a, b) => (a.waitingSince || 0) - (b.waitingSince || 0));
+
+  const normalizedDoctorId = String(doctorId || "").trim();
+  const exactMatch = items.find((item) => {
+    const sameName = String(item.name || "").trim().toLowerCase() === normalizedName;
+    if (!sameName) return false;
+    if (!normalizedDoctorId) return true;
+    return String(item.doctorId || "").trim() === normalizedDoctorId;
+  });
+  const fallbackMatch = items.find(
+    (item) => String(item.name || "").trim().toLowerCase() === normalizedName,
+  );
+
+  const match = exactMatch || fallbackMatch;
+  if (!match) return null;
+
+  await remove(ref(db, `waitingQueue/${match.id}`));
+  return match;
+}
+
 export function getNextQueueSuggestion(queue = []) {
   if (!queue.length) return null;
   // Already sorted by priority then time
@@ -637,6 +665,8 @@ export async function reserveBed(db = dbInstance, bedId, reservation, actor) {
     assignedDoctor: "",
     cleaningStartedAt: 0,
   });
+
+  await removeMatchedWaitingPatient(db, reservation.patientName, reservation.doctorId);
 
   await pushActivity(db, {
     title: `${bedId} reserved`,
@@ -996,6 +1026,11 @@ export async function updateBedRecord(db = dbInstance, bedId, patch, actor) {
   }
 
   await update(bedRef, nextRecord);
+  if (nextStatus === "occupied") {
+    await removeMatchedWaitingPatient(db, nextRecord.patientName, nextRecord.assignedDoctor);
+  } else if (nextStatus === "reserved") {
+    await removeMatchedWaitingPatient(db, nextRecord.reservedFor, nextRecord.reservedDoctorId);
+  }
   await pushActivity(db, {
     title: `${bedId} → ${STATUS_META[nextStatus]?.label || nextStatus}`,
     copy: `${actor.name} (${normalizeRole(actor.role)}) updated ${bedId} in ${current.ward}.`,
