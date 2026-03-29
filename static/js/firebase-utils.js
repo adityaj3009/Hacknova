@@ -1010,12 +1010,13 @@ export async function updateBedRecord(db = dbInstance, bedId, patch, actor) {
     nextRecord.reservationTime = current.reservationTime || now;
   }
   if (nextStatus === "occupied") {
-    const occupiedPatientName = nextPatientName || nextReservedFor;
+    const occupiedPatientName = String(nextRecord.patientName || nextPatientName || nextReservedFor || "").trim();
+    const occupiedDoctorId = String(nextRecord.assignedDoctor || chosenDoctorId || "").trim();
     if (!occupiedPatientName) throw new Error("Occupied beds must have a patient name.");
-    if (!chosenDoctorId) throw new Error("Occupied beds must be assigned to a doctor.");
+    if (!occupiedDoctorId) throw new Error("Occupied beds must be assigned to a doctor.");
     const patientChanged = current.status !== "occupied" || current.patientName !== occupiedPatientName;
     nextRecord.patientName = occupiedPatientName;
-    nextRecord.assignedDoctor = chosenDoctorId;
+    nextRecord.assignedDoctor = occupiedDoctorId;
     nextRecord.reservedFor = "";
     nextRecord.reservedDoctorId = "";
     nextRecord.cleaningStartedAt = 0;
